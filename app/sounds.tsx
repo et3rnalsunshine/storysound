@@ -39,6 +39,8 @@ export default function SoundLibraryScreen() {
         fileName: asset.name,
         uri: asset.uri,
         sizeLabel: formatFileSize(asset.size),
+        source: 'upload',
+        prompt: null,
       });
     }
   };
@@ -65,8 +67,9 @@ export default function SoundLibraryScreen() {
             Your sound effects
           </Typography>
           <Typography type="body-sm" className="text-ink-soft">
-            Upload short audio files (mp3, wav or m4a) and name them. A sound-effect suggestion can
-            then use one of them — you choose which.
+            Upload short audio files (mp3, wav or m4a) and name them. Sounds you generate from a
+            suggestion land here too. A sound-effect suggestion can use any of them — you choose
+            which.
           </Typography>
         </View>
 
@@ -124,7 +127,7 @@ export default function SoundLibraryScreen() {
         )}
 
         <Typography type="body-xs" className="text-ink-soft">
-          Uploaded sounds stay on this device for this session and are only heard where you accept a
+          Sounds stay on this device for this session and are only heard where you accept a
           sound-effect suggestion.
         </Typography>
 
@@ -162,8 +165,20 @@ function SoundRow({ sound, isPreviewing, onRename, onPreview, onRemove }: SoundR
       </TextField>
 
       <Typography type="body-xs" className="text-ink-soft" numberOfLines={1}>
-        {[sound.fileName, sound.sizeLabel].filter(Boolean).join(' · ')}
+        {[
+          sound.source === 'generated' ? 'Generated with AI' : 'Uploaded',
+          sound.fileName,
+          sound.sizeLabel,
+        ]
+          .filter(Boolean)
+          .join(' · ')}
       </Typography>
+
+      {sound.prompt === null ? null : (
+        <Typography type="body-xs" className="text-ink-soft">
+          From your description: “{sound.prompt}”
+        </Typography>
+      )}
 
       <View className="flex-row gap-3">
         <Button variant="secondary" size="md" className="flex-1" onPress={onPreview}>

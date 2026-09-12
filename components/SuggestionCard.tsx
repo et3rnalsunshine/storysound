@@ -1,5 +1,16 @@
 import { useState } from 'react';
-import { Check, Clock, Pause, Pencil, Play, Waves, X } from 'lucide-react-native';
+import {
+  AlertTriangle,
+  Check,
+  Clock,
+  Pause,
+  Pencil,
+  Play,
+  RefreshCw,
+  Sparkles,
+  Waves,
+  X,
+} from 'lucide-react-native';
 import {
   Button,
   Description,
@@ -8,6 +19,7 @@ import {
   Radio,
   RadioGroup,
   Slider,
+  Spinner,
   Surface,
   TextArea,
   TextField,
@@ -17,6 +29,7 @@ import { View } from 'react-native';
 import { router } from 'expo-router';
 
 import { StatusPill } from '@/components/StatusPill';
+import { useSfxGeneration } from '@/hooks/useSfxGeneration';
 import { useSfxPreview } from '@/hooks/useSfxPreview';
 import { useStoryTimeline } from '@/hooks/useStoryTimeline';
 import { isSuggestionEdited, useStoryStore } from '@/lib/store';
@@ -25,7 +38,9 @@ import {
   formatCueTime,
   formatSfxDuration,
   formatSfxVolume,
+  isPromptReady,
   isSfxSuggestion,
+  MAX_SFX_PROMPT_LENGTH,
   maxSfxDurationFor,
   MIN_SFX_DURATION_SEC,
   type SfxSettings,
@@ -45,6 +60,20 @@ function singleValue(value: number | number[]): number {
   return Array.isArray(value) ? (value[0] ?? 0) : value;
 }
 
+/** One labelled line of the sound-effect summary. */
+function DetailRow({ label, value }: { label: string; value: string }) {
+  return (
+    <View className="flex-row items-start justify-between gap-4">
+      <Typography type="body-sm" className="text-ink-soft">
+        {label}
+      </Typography>
+      <Typography type="body-sm" weight="semibold" className="text-ink flex-1 text-right">
+        {value}
+      </Typography>
+    </View>
+  );
+}
+
 /** The AI suggestion card. Every outcome here is chosen by the user. */
 export function SuggestionCard({ suggestion, onDone }: SuggestionCardProps) {
   const status = useStoryStore((state) => state.statuses[suggestion.id]) ?? 'pending';
@@ -55,6 +84,7 @@ export function SuggestionCard({ suggestion, onDone }: SuggestionCardProps) {
 
   const { narrationSec, sfxSettings, sounds } = useStoryTimeline();
   const preview = useSfxPreview();
+  const generation = useSfxGeneration(suggestion.id);
 
   const isSfx = isSfxSuggestion(suggestion);
   const settings = sfxSettings[suggestion.id] ?? defaultSfxSettings(suggestion);
@@ -68,6 +98,7 @@ export function SuggestionCard({ suggestion, onDone }: SuggestionCardProps) {
   const isPreviewing = preview.playingId === suggestion.id;
   const active = isEditing ? sfxDraft : settings;
   const activeSound = isEditing ? soundById(sounds, sfxDraft.soundId) : sound;
+  const canGenerate = isPromptReady(active.prompt) && !generation.isGenerating;
 
   const startEditing = () => {
     preview.stop();
@@ -102,6 +133,27 @@ export function SuggestionCard({ suggestion, onDone }: SuggestionCardProps) {
       volume: active.volume,
       durationSec: active.durationSec,
     });
+  };
+
+  /** Generates from whatever description is on screen, saving any open edits. */
+  const runGeneration = () => {
+    preview.stop();
+    generation.dismissError();
+
+    if (isEditing) {
+      const next = draft.trim();
+      if (next.length > 0) saveDetail(suggestion.id, next);
+      setSfxOverride(suggestion.id, sfxDraft);
+      setIsEditing(false);
+      generation.generate({
+        prompt: sfxDraft.prompt,
+        durationSec: sfxDraft.durationSec,
+        patch: sfxDraft,
+      });
+      return;
+    }
+
+    generation.generate({ prompt: settings.prompt, durationSec: settings.durationSec });
   };
 
   const openLibrary = () => {
@@ -159,38 +211,57 @@ export function SuggestionCard({ suggestion, onDone }: SuggestionCardProps) {
           <View className="flex-row items-center gap-2">
             <Waves size={16} color={palette.sfx} />
             <Typography type="body-xs" className="text-ink-soft tracking-widest uppercase">
-              Sound effect
+              Suggested by AI · sound effect
             </Typography>
           </View>
 
-          <View className="gap-1">
-            <Typography
-              type="body"
-              weight={activeSound === null ? 'normal' : 'semibold'}
-              className={activeSound === null ? 'text-ink-soft' : 'text-ink'}
-            >
-              {activeSound?.name ?? 'No sound chosen yet'}
-            </Typography>
-            <Typography type="body-sm" className="text-ink-soft">
-              Starts {formatCueTime(active.startSec)} · plays for{' '}
-              {formatSfxDuration(active.durationSec)} · volume {formatSfxVolume(active.volume)}
-            </Typography>
+          <View className="gap-2">
+            <DetailRow label="Sound" value={active.prompt} />
+            <DetailRow
+              label="Generated file"
+              value={activeSound === null ? 'Not generated yet' : activeSound.name}
+            />
+            <DetailRow label="Start" value={formatCueTime(active.startSec)} />
+            <DetailRow label="Duration" value={formatSfxDuration(active.durationSec)} />
+            <DetailRow label="Volume" value={formatSfxVolume(active.volume)} />
           </View>
 
           {isEditing ? (
             <View className="gap-5">
-              {sounds.length === 0 ? (
+              <TextField>
+                <Label>Sound description</Label>
+                <TextArea
+                  value={sfxDraft.prompt}
+                  onChangeText={(value) =>
+                    setSfxDraft((current) => ({
+                      ...current,
+                      prompt: value.slice(0, MAX_SFX_PROMPT_LENGTH),
+                    }))
+                  }
+                  numberOfLines={3}
+                  className="min-h-20"
+                  placeholder="Low rising wind with distant rattling"
+                />
+                <Description>
+                  This is the text sent to the sound generator. Change it and generate again.
+                </Description>
+              </TextField>
+
+              <Button
+                variant="secondary"
+                size="md"
+                isDisabled={!canGenerate}
+                onPress={runGeneration}
+              >
+                <Sparkles size={16} color={palette.ink} />
+                <Button.Label>
+                  {activeSound === null ? 'Generate sound' : 'Regenerate with this description'}
+                </Button.Label>
+              </Button>
+
+              {sounds.length > 0 ? (
                 <View className="gap-2">
-                  <Typography type="body-sm" className="text-ink-soft">
-                    Your sound library is empty. Upload an audio file to use it here.
-                  </Typography>
-                  <Button variant="secondary" size="md" onPress={openLibrary}>
-                    <Button.Label>Open sound library</Button.Label>
-                  </Button>
-                </View>
-              ) : (
-                <View className="gap-2">
-                  <Label>Sound</Label>
+                  <Label>Or use a sound from your library</Label>
                   <RadioGroup
                     value={sfxDraft.soundId ?? ''}
                     onValueChange={(value) => {
@@ -202,16 +273,23 @@ export function SuggestionCard({ suggestion, onDone }: SuggestionCardProps) {
                       <RadioGroup.Item key={item.id} value={item.id}>
                         <View className="flex-1 pr-3">
                           <Label>{item.name}</Label>
-                          <Description numberOfLines={1}>{item.fileName}</Description>
+                          <Description numberOfLines={1}>
+                            {item.source === 'generated' ? 'Generated' : 'Uploaded'} ·{' '}
+                            {item.fileName}
+                          </Description>
                         </View>
                         <Radio />
                       </RadioGroup.Item>
                     ))}
                   </RadioGroup>
                   <LinkButton size="sm" className="self-start" onPress={openLibrary}>
-                    Upload another sound
+                    Open sound library
                   </LinkButton>
                 </View>
+              ) : (
+                <LinkButton size="sm" className="self-start" onPress={openLibrary}>
+                  Upload your own sound instead
+                </LinkButton>
               )}
 
               <View className="gap-2">
@@ -293,25 +371,73 @@ export function SuggestionCard({ suggestion, onDone }: SuggestionCardProps) {
             </View>
           ) : null}
 
-          {activeSound === null ? (
-            <Button
-              variant="secondary"
-              size="md"
-              onPress={sounds.length === 0 ? openLibrary : startEditing}
-            >
-              <Button.Label>
-                {sounds.length === 0 ? 'Upload a sound effect' : 'Choose a sound'}
-              </Button.Label>
-            </Button>
-          ) : (
-            <Button variant="secondary" size="md" onPress={togglePreview}>
-              {isPreviewing ? (
-                <Pause size={16} color={palette.ink} />
+          {generation.isGenerating ? (
+            <View className="flex-row items-center gap-3">
+              <Spinner size="sm" />
+              <Typography type="body-sm" className="text-ink">
+                Generating this sound from your description…
+              </Typography>
+            </View>
+          ) : null}
+
+          {generation.error !== null ? (
+            <View className="border-border gap-3 rounded-lg border p-3">
+              <View className="flex-row items-start gap-2">
+                <AlertTriangle size={16} color={palette.marker} />
+                <Typography type="body-sm" className="text-ink flex-1">
+                  {generation.error.message}
+                </Typography>
+              </View>
+              {generation.error.retryable ? (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="self-start"
+                  onPress={runGeneration}
+                >
+                  <Button.Label>Try again</Button.Label>
+                </Button>
+              ) : null}
+              <Typography type="body-xs" className="text-ink-soft">
+                Your narration and the rest of the timeline are unaffected.
+              </Typography>
+            </View>
+          ) : null}
+
+          {isEditing ? null : (
+            <View className="gap-3">
+              {activeSound === null ? (
+                <Button size="md" isDisabled={!canGenerate} onPress={runGeneration}>
+                  <Sparkles size={16} color={palette.paper} />
+                  <Button.Label>Generate Sound</Button.Label>
+                </Button>
               ) : (
-                <Play size={16} color={palette.ink} />
+                <View className="flex-row gap-3">
+                  <Button variant="secondary" size="md" className="flex-1" onPress={togglePreview}>
+                    {isPreviewing ? (
+                      <Pause size={16} color={palette.ink} />
+                    ) : (
+                      <Play size={16} color={palette.ink} />
+                    )}
+                    <Button.Label>{isPreviewing ? 'Stop preview' : 'Preview Sound'}</Button.Label>
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="md"
+                    className="flex-1"
+                    isDisabled={!canGenerate}
+                    onPress={runGeneration}
+                  >
+                    <RefreshCw size={16} color={palette.ink} />
+                    <Button.Label>Regenerate</Button.Label>
+                  </Button>
+                </View>
               )}
-              <Button.Label>{isPreviewing ? 'Stop preview' : 'Preview sound'}</Button.Label>
-            </Button>
+
+              <LinkButton size="sm" className="self-start" onPress={openLibrary}>
+                {sounds.length === 0 ? 'Upload your own sound instead' : 'Open sound library'}
+              </LinkButton>
+            </View>
           )}
 
           <Typography type="body-xs" className="text-ink-soft">

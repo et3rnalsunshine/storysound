@@ -1,27 +1,37 @@
 /**
  * Sound-effect library and cue model for StorySound.
  *
- * The user uploads real audio files into a small library, then points a
- * sound-effect suggestion at one of them. The suggestion keeps its Accept /
- * Modify / Reject controls: the file, start time, length and volume are all the
- * user's choice, and nothing is heard until the suggestion is accepted.
+ * A sound effect is either a file the user uploaded or one generated from a
+ * description through the backend sound-generation function. Either way it lands
+ * in the same small library, and a sound-effect suggestion points at one of them.
+ * The suggestion keeps its Accept / Modify / Reject controls: the sound, its
+ * description, start time, length and volume are all the user's choice, and
+ * nothing is heard until the suggestion is accepted.
  */
 
 import { type Suggestion, type SuggestionKind } from '@/lib/story';
+
+/** Where a sound came from. */
+export type SoundSource = 'upload' | 'generated';
 
 export type SoundAsset = {
   id: string;
   /** User-facing name, e.g. "Wind forming". */
   name: string;
   fileName: string;
-  /** Playable URI. Files are copied into the app cache when picked. */
+  /** Playable URI. Files are copied into the app cache when picked or generated. */
   uri: string;
   sizeLabel: string | null;
+  source: SoundSource;
+  /** Description the sound was generated from, or `null` for uploads. */
+  prompt: string | null;
 };
 
 export type SfxSettings = {
   /** Chosen sound from the library, or `null` while nothing is chosen yet. */
   soundId: string | null;
+  /** Description used to generate the sound. The user can rewrite it. */
+  prompt: string;
   startSec: number;
   /** How long the effect is allowed to sound for. */
   durationSec: number;
@@ -36,6 +46,7 @@ export type SfxCue = {
   soundId: string;
   soundName: string;
   uri: string;
+  source: SoundSource;
   startSec: number;
   durationSec: number;
   volume: number;
@@ -51,6 +62,23 @@ export const SFX_NAME_PRESETS = [
 
 export const MIN_SFX_DURATION_SEC = 0.5;
 export const MAX_SFX_DURATION_SEC = 20;
+
+/** Prompt limits mirrored from the backend generation function. */
+export const MIN_SFX_PROMPT_LENGTH = 3;
+export const MAX_SFX_PROMPT_LENGTH = 500;
+
+/** True when a description is long enough to send to the generator. */
+export function isPromptReady(prompt: string): boolean {
+  return prompt.trim().length >= MIN_SFX_PROMPT_LENGTH;
+}
+
+/** Short library name taken from the sound description, e.g. "Dripping water". */
+export function soundNameFromPrompt(prompt: string): string {
+  const words = prompt.trim().replaceAll(/\s+/g, ' ').split(' ').slice(0, 4).join(' ');
+  const clean = words.replace(/[,.;:]+$/, '');
+  if (clean.length === 0) return 'Generated sound';
+  return clean.charAt(0).toUpperCase() + clean.slice(1);
+}
 
 function round1(value: number): number {
   return Math.round(value * 10) / 10;
@@ -78,6 +106,7 @@ export function defaultSfxSettings(suggestion: Suggestion): SfxSettings {
   const length = suggestion.clip.endSec - suggestion.clip.startSec;
   return {
     soundId: null,
+    prompt: suggestion.sfxPrompt ?? suggestion.detail,
     startSec: round1(suggestion.clip.startSec),
     durationSec: round1(clamp(length, MIN_SFX_DURATION_SEC, MAX_SFX_DURATION_SEC)),
     volume: defaultVolumeFor(suggestion.kind),
@@ -95,6 +124,7 @@ export function clampSfxSettings(settings: SfxSettings, narrationSec: number): S
 
   return {
     soundId: settings.soundId,
+    prompt: settings.prompt.slice(0, MAX_SFX_PROMPT_LENGTH),
     startSec: round1(startSec),
     durationSec: round1(clamp(settings.durationSec, MIN_SFX_DURATION_SEC, maxDuration)),
     volume: clamp(settings.volume, 0, 1),
@@ -186,6 +216,7 @@ export function sfxCuesFor(
       soundId: sound.id,
       soundName: sound.name,
       uri: sound.uri,
+      source: sound.source,
       startSec: settings.startSec,
       durationSec: settings.durationSec,
       volume: settings.volume,

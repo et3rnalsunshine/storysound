@@ -179,8 +179,8 @@ export default function EditorScreen() {
               <Waves size={14} color={palette.marker} />
               <Typography type="body-xs" className="text-marker flex-1">
                 {acceptedSfxWithoutSound} accepted sound effect
-                {acceptedSfxWithoutSound === 1 ? '' : 's'} still need a sound file. Open the
-                suggestion and choose one to hear it.
+                {acceptedSfxWithoutSound === 1 ? '' : 's'} still need a sound. Open the suggestion
+                to generate or choose one.
               </Typography>
             </View>
           ) : null}

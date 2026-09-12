@@ -30,6 +30,8 @@ export type Suggestion = {
   detail: string;
   /** What the analysis noticed in the manuscript / narration. */
   observation: string;
+  /** Sound description proposed for a sound-effect note. The user can rewrite it. */
+  sfxPrompt?: string;
   clip: SuggestionClip;
 };
 
@@ -77,6 +79,8 @@ export const SUGGESTIONS: Suggestion[] = [
     title: 'Water-to-wind transition',
     detail: 'The tornado begins forming. Consider a subtle water-to-wind transition.',
     observation: 'Narration pace rises and the imagery moves from water to movement and air.',
+    sfxPrompt:
+      'Dripping water fading into a low rising wind, a subtle build-up of tension, no music',
     clip: { track: 'sfx', startSec: 16.4, endSec: 20.2, label: 'Water → wind' },
   },
   {
@@ -87,6 +91,8 @@ export const SUGGESTIONS: Suggestion[] = [
     title: 'Increase sound intensity',
     detail: 'The tornado enters the hallway. Increase sound intensity.',
     observation: 'Loudest stretch of the narration, with short sentences and rising volume.',
+    sfxPrompt:
+      'Strong tornado wind roaring down a narrow hallway, doors rattling and small objects crashing',
     clip: { track: 'sfx', startSec: 23.4, endSec: 29.6, label: 'Storm intensity +4 dB' },
   },
   {

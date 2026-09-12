@@ -115,12 +115,12 @@ export default function ProjectScreen() {
               className={soundCount > 0 ? 'text-ink' : 'text-ink-soft'}
             >
               {soundCount === 0
-                ? 'No sound effects uploaded'
+                ? 'No sound effects yet'
                 : `${soundCount} sound${soundCount === 1 ? '' : 's'} ready`}
             </Typography>
             <Typography type="body-sm" className="text-ink-soft">
-              Upload the effects you own — water, wind, crashing objects. A sound-effect suggestion
-              plays the one you pick.
+              Generate effects from a sound-effect suggestion, or upload your own — water, wind,
+              crashing objects. Every effect you keep lands here.
             </Typography>
           </View>
 

@@ -238,13 +238,15 @@ export default function CompareScreen() {
                       </Typography>
                       {cue !== undefined ? (
                         <Typography type="body-xs" className="text-sfx">
-                          {cue.soundName} · plays at {formatCueTime(cue.startSec)} for{' '}
-                          {formatSfxDuration(cue.durationSec)} at {formatSfxVolume(cue.volume)}
+                          {cue.soundName} (
+                          {cue.source === 'generated' ? 'AI-generated' : 'your file'}) · plays at{' '}
+                          {formatCueTime(cue.startSec)} for {formatSfxDuration(cue.durationSec)} at{' '}
+                          {formatSfxVolume(cue.volume)}
                         </Typography>
                       ) : null}
                       {needsSound ? (
                         <Typography type="body-xs" className="text-marker">
-                          No sound file chosen yet, so nothing is heard for this one.
+                          No sound generated or chosen yet, so nothing is heard for this one.
                         </Typography>
                       ) : null}
                     </View>
@@ -253,8 +255,8 @@ export default function CompareScreen() {
               })}
               <Typography type="body-xs" className="text-ink-soft">
                 {assisted.isSimulated
-                  ? `Sound effects play for real from your library${sfxCues.length > 0 ? '' : ' once you choose one'}. Load your own narration file to hear the pauses and level changes too.`
-                  : 'While the assisted version plays, accepted pauses stop the narration for their exact length, accepted mix notes change its level, and accepted sound effects play over it from your own files.'}
+                  ? `Sound effects play for real${sfxCues.length > 0 ? '' : ' once you generate or choose one'}. Load your own narration file to hear the pauses and level changes too.`
+                  : 'While the assisted version plays, accepted pauses stop the narration for their exact length, accepted mix notes change its level, and accepted sound effects play over it on their own layer.'}
               </Typography>
             </Surface>
           )}
