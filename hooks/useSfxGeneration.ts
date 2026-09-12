@@ -49,6 +49,8 @@ export function useSfxGeneration(suggestionId: string): SfxGeneration {
               fileName: file.fileName,
               uri: file.uri,
               sizeLabel: file.sizeLabel,
+              byteLength: file.byteLength,
+              mimeType: file.mimeType,
               source: 'generated',
               prompt: description,
             },

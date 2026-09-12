@@ -10,6 +10,8 @@ export type NewSound = {
   fileName: string;
   uri: string;
   sizeLabel: string | null;
+  byteLength: number | null;
+  mimeType: string | null;
   source: SoundSource;
   /** Description the sound was generated from, or `null` for uploads. */
   prompt: string | null;
@@ -31,6 +33,8 @@ function toSoundAsset(sound: NewSound, id: string): SoundAsset {
     fileName: sound.fileName,
     uri: sound.uri,
     sizeLabel: sound.sizeLabel,
+    byteLength: sound.byteLength,
+    mimeType: sound.mimeType,
     source: sound.source,
     prompt: sound.prompt,
   };

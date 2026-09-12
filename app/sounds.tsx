@@ -39,6 +39,8 @@ export default function SoundLibraryScreen() {
         fileName: asset.name,
         uri: asset.uri,
         sizeLabel: formatFileSize(asset.size),
+        byteLength: asset.size ?? null,
+        mimeType: asset.mimeType ?? null,
         source: 'upload',
         prompt: null,
       });
@@ -104,9 +106,14 @@ export default function SoundLibraryScreen() {
                 key={sound.id}
                 sound={sound}
                 isPreviewing={preview.playingId === sound.id}
+                isPreviewLoading={preview.loadingId === sound.id}
+                previewError={preview.debug?.id === sound.id ? preview.error : null}
+                previewLoadState={
+                  preview.debug?.id === sound.id ? preview.debug.loadState : 'not-tested'
+                }
                 onRename={(name) => renameSound(sound.id, name)}
                 onPreview={() => {
-                  if (preview.playingId === sound.id) {
+                  if (preview.playingId === sound.id || preview.loadingId === sound.id) {
                     preview.stop();
                     return;
                   }
@@ -115,6 +122,8 @@ export default function SoundLibraryScreen() {
                     uri: sound.uri,
                     volume: 1,
                     durationSec: LIBRARY_PREVIEW_SEC,
+                    byteLength: sound.byteLength,
+                    mimeType: sound.mimeType,
                   });
                 }}
                 onRemove={() => {
@@ -142,12 +151,24 @@ export default function SoundLibraryScreen() {
 type SoundRowProps = {
   sound: SoundAsset;
   isPreviewing: boolean;
+  isPreviewLoading: boolean;
+  previewError: string | null;
+  previewLoadState: 'not-tested' | 'loading' | 'loaded' | 'failed';
   onRename: (name: string) => void;
   onPreview: () => void;
   onRemove: () => void;
 };
 
-function SoundRow({ sound, isPreviewing, onRename, onPreview, onRemove }: SoundRowProps) {
+function SoundRow({
+  sound,
+  isPreviewing,
+  isPreviewLoading,
+  previewError,
+  previewLoadState,
+  onRename,
+  onPreview,
+  onRemove,
+}: SoundRowProps) {
   const [name, setName] = useState(sound.name);
 
   return (
@@ -182,18 +203,39 @@ function SoundRow({ sound, isPreviewing, onRename, onPreview, onRemove }: SoundR
 
       <View className="flex-row gap-3">
         <Button variant="secondary" size="md" className="flex-1" onPress={onPreview}>
-          {isPreviewing ? (
+          {isPreviewLoading ? null : isPreviewing ? (
             <Pause size={16} color={palette.ink} />
           ) : (
             <Play size={16} color={palette.ink} />
           )}
-          <Button.Label>{isPreviewing ? 'Stop' : 'Preview'}</Button.Label>
+          <Button.Label>
+            {isPreviewLoading ? 'Loading…' : isPreviewing ? 'Stop' : 'Preview'}
+          </Button.Label>
         </Button>
         <Button variant="tertiary" size="md" onPress={onRemove} accessibilityLabel="Remove sound">
           <Trash2 size={16} color={palette.inkSoft} />
           <Button.Label>Remove</Button.Label>
         </Button>
       </View>
+
+      {previewError === null ? null : (
+        <Typography type="body-sm" className="text-ink">
+          {previewError}
+        </Typography>
+      )}
+
+      {sound.source === 'generated' ? (
+        <Typography type="body-xs" className="text-ink-soft">
+          Debug: {sound.byteLength ?? 0} bytes · {sound.mimeType ?? 'unknown MIME'} · Player loaded:{' '}
+          {previewLoadState === 'not-tested'
+            ? 'Not tested'
+            : previewLoadState === 'loaded'
+              ? 'Yes'
+              : previewLoadState === 'loading'
+                ? 'Loading'
+                : 'Failed'}
+        </Typography>
+      ) : null}
     </Surface>
   );
 }

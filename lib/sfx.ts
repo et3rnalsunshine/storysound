@@ -22,6 +22,9 @@ export type SoundAsset = {
   /** Playable URI. Files are copied into the app cache when picked or generated. */
   uri: string;
   sizeLabel: string | null;
+  /** Decoded byte count and MIME type, kept for generated-audio diagnostics. */
+  byteLength: number | null;
+  mimeType: string | null;
   source: SoundSource;
   /** Description the sound was generated from, or `null` for uploads. */
   prompt: string | null;

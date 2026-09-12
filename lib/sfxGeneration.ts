@@ -35,6 +35,8 @@ export type GeneratedSoundFile = {
   uri: string;
   fileName: string;
   sizeLabel: string | null;
+  byteLength: number;
+  mimeType: string;
 };
 
 type GenerateResponse = {
@@ -91,20 +93,39 @@ export async function generateSoundEffect(request: {
     throw new SfxGenerationError(UNREACHABLE_MESSAGE, true);
   }
 
-  const audioBase64 = typeof data?.audioBase64 === 'string' ? data.audioBase64 : '';
+  const audioBase64 =
+    typeof data?.audioBase64 === 'string' ? data.audioBase64.replaceAll(/\s/g, '') : '';
   if (audioBase64.length === 0) {
     throw new SfxGenerationError('The generator returned no audio. Try again.', true);
   }
+  if (audioBase64.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(audioBase64)) {
+    throw new SfxGenerationError('The generator returned invalid audio data. Try again.', true);
+  }
 
   const extension = typeof data?.extension === 'string' ? data.extension : 'mp3';
-  const mimeType = typeof data?.mimeType === 'string' ? data.mimeType : 'audio/mpeg';
-  const byteLength = typeof data?.byteLength === 'number' ? data.byteLength : undefined;
+  const mimeType = typeof data?.mimeType === 'string' ? data.mimeType.toLowerCase() : '';
+  const byteLength = typeof data?.byteLength === 'number' ? data.byteLength : 0;
+  const padding = audioBase64.endsWith('==') ? 2 : audioBase64.endsWith('=') ? 1 : 0;
+  const decodedByteLength = (audioBase64.length / 4) * 3 - padding;
+  if (!mimeType.startsWith('audio/') || byteLength <= 0 || decodedByteLength !== byteLength) {
+    throw new SfxGenerationError('The generator returned incomplete audio data. Try again.', true);
+  }
   const fileName = `${fileSlug(prompt)}-${Date.now().toString(36)}.${extension}`;
 
   try {
-    const uri = await saveGeneratedAudio(audioBase64, fileName, mimeType);
-    return { uri, fileName, sizeLabel: formatFileSize(byteLength) };
-  } catch {
-    throw new SfxGenerationError('Could not save the generated sound on this device.', true);
+    const saved = await saveGeneratedAudio(audioBase64, fileName, mimeType, byteLength);
+    return {
+      uri: saved.uri,
+      fileName,
+      sizeLabel: formatFileSize(saved.byteLength),
+      byteLength: saved.byteLength,
+      mimeType: saved.mimeType,
+    };
+  } catch (error) {
+    const detail = error instanceof Error ? ` ${error.message}` : '';
+    throw new SfxGenerationError(
+      `Could not save the generated sound on this device.${detail}`,
+      true,
+    );
   }
 }

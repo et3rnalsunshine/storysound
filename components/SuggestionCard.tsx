@@ -96,6 +96,7 @@ export function SuggestionCard({ suggestion, onDone }: SuggestionCardProps) {
 
   const edited = isSuggestionEdited(suggestion, detail);
   const isPreviewing = preview.playingId === suggestion.id;
+  const isPreviewLoading = preview.loadingId === suggestion.id;
   const active = isEditing ? sfxDraft : settings;
   const activeSound = isEditing ? soundById(sounds, sfxDraft.soundId) : sound;
   const canGenerate = isPromptReady(active.prompt) && !generation.isGenerating;
@@ -122,7 +123,7 @@ export function SuggestionCard({ suggestion, onDone }: SuggestionCardProps) {
   };
 
   const togglePreview = () => {
-    if (isPreviewing) {
+    if (isPreviewing || isPreviewLoading) {
       preview.stop();
       return;
     }
@@ -132,6 +133,8 @@ export function SuggestionCard({ suggestion, onDone }: SuggestionCardProps) {
       uri: activeSound.uri,
       volume: active.volume,
       durationSec: active.durationSec,
+      byteLength: activeSound.byteLength,
+      mimeType: activeSound.mimeType,
     });
   };
 
@@ -414,12 +417,20 @@ export function SuggestionCard({ suggestion, onDone }: SuggestionCardProps) {
               ) : (
                 <View className="flex-row gap-3">
                   <Button variant="secondary" size="md" className="flex-1" onPress={togglePreview}>
-                    {isPreviewing ? (
+                    {isPreviewLoading ? (
+                      <Spinner size="sm" />
+                    ) : isPreviewing ? (
                       <Pause size={16} color={palette.ink} />
                     ) : (
                       <Play size={16} color={palette.ink} />
                     )}
-                    <Button.Label>{isPreviewing ? 'Stop preview' : 'Preview Sound'}</Button.Label>
+                    <Button.Label>
+                      {isPreviewLoading
+                        ? 'Loading preview…'
+                        : isPreviewing
+                          ? 'Stop preview'
+                          : 'Preview Sound'}
+                    </Button.Label>
                   </Button>
                   <Button
                     variant="secondary"
@@ -437,6 +448,28 @@ export function SuggestionCard({ suggestion, onDone }: SuggestionCardProps) {
               <LinkButton size="sm" className="self-start" onPress={openLibrary}>
                 {sounds.length === 0 ? 'Upload your own sound instead' : 'Open sound library'}
               </LinkButton>
+
+              {preview.error !== null && preview.debug?.id === suggestion.id ? (
+                <View className="border-border rounded-lg border p-3">
+                  <Typography type="body-sm" className="text-ink">
+                    {preview.error}
+                  </Typography>
+                </View>
+              ) : null}
+
+              {activeSound?.source === 'generated' ? (
+                <Typography type="body-xs" className="text-ink-soft">
+                  Debug: {activeSound.byteLength ?? 0} bytes ·{' '}
+                  {activeSound.mimeType ?? 'unknown MIME'} · Player loaded:{' '}
+                  {preview.debug?.id !== suggestion.id
+                    ? 'Not tested'
+                    : preview.debug.loadState === 'loaded'
+                      ? 'Yes'
+                      : preview.debug.loadState === 'loading'
+                        ? 'Loading'
+                        : 'Failed'}
+                </Typography>
+              ) : null}
             </View>
           )}
 
