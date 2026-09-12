@@ -1,8 +1,20 @@
 import { create } from 'zustand';
 
+import { type SfxSettings, type SoundAsset } from '@/lib/sfx';
 import { SAMPLE_PROJECT, SUGGESTIONS, type Suggestion } from '@/lib/story';
 
 export type SuggestionStatus = 'pending' | 'edited' | 'accepted' | 'rejected';
+
+export type NewSound = {
+  name: string;
+  fileName: string;
+  uri: string;
+  sizeLabel: string | null;
+};
+
+function createSoundId(): string {
+  return `snd-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+}
 
 type StoryState = {
   manuscriptTitle: string | null;
@@ -21,6 +33,10 @@ type StoryState = {
   /** Suggestion text, editable by the user. Keyed by suggestion id. */
   details: Record<string, string>;
   statuses: Record<string, SuggestionStatus>;
+  /** Uploaded sound-effect files, reusable across projects. */
+  sounds: SoundAsset[];
+  /** What the user changed on a sound-effect suggestion. Keyed by suggestion id. */
+  sfxOverrides: Record<string, Partial<SfxSettings>>;
   setManuscript: (title: string, fileName: string, meta: string | null) => void;
   setNarration: (fileName: string, meta: string | null, uri: string | null) => void;
   setNarrationAnalysis: (durationSec: number, peaks: number[] | null) => void;
@@ -31,6 +47,11 @@ type StoryState = {
   setStatus: (id: string, status: SuggestionStatus) => void;
   saveDetail: (id: string, detail: string) => void;
   resetDecisions: () => void;
+  addSound: (sound: NewSound) => void;
+  renameSound: (id: string, name: string) => void;
+  removeSound: (id: string) => void;
+  /** Stores the sound, timing or volume the user chose for a suggestion. */
+  setSfxOverride: (id: string, patch: Partial<SfxSettings>) => void;
 };
 
 function initialDetails(): Record<string, string> {
@@ -58,6 +79,8 @@ export const useStoryStore = create<StoryState>()((set) => ({
   hasAnalysed: false,
   details: initialDetails(),
   statuses: initialStatuses(),
+  sounds: [],
+  sfxOverrides: {},
 
   setManuscript: (title, fileName, meta) =>
     set({
@@ -118,6 +141,7 @@ export const useStoryStore = create<StoryState>()((set) => ({
       hasAnalysed: false,
       details: initialDetails(),
       statuses: initialStatuses(),
+      sfxOverrides: {},
     }),
 
   completeAnalysis: () => set({ hasAnalysed: true }),
@@ -134,6 +158,40 @@ export const useStoryStore = create<StoryState>()((set) => ({
     })),
 
   resetDecisions: () => set({ details: initialDetails(), statuses: initialStatuses() }),
+
+  addSound: (sound) =>
+    set((state) => ({
+      sounds: [
+        ...state.sounds,
+        {
+          id: createSoundId(),
+          name: sound.name.trim().length > 0 ? sound.name.trim() : sound.fileName,
+          fileName: sound.fileName,
+          uri: sound.uri,
+          sizeLabel: sound.sizeLabel,
+        },
+      ],
+    })),
+
+  renameSound: (id, name) =>
+    set((state) => ({
+      sounds: state.sounds.map((sound) => (sound.id === id ? { ...sound, name } : sound)),
+    })),
+
+  removeSound: (id) =>
+    set((state) => {
+      const overrides: Record<string, Partial<SfxSettings>> = {};
+      for (const [suggestionId, override] of Object.entries(state.sfxOverrides)) {
+        overrides[suggestionId] =
+          override.soundId === id ? { ...override, soundId: null } : override;
+      }
+      return { sounds: state.sounds.filter((sound) => sound.id !== id), sfxOverrides: overrides };
+    }),
+
+  setSfxOverride: (id, patch) =>
+    set((state) => ({
+      sfxOverrides: { ...state.sfxOverrides, [id]: { ...state.sfxOverrides[id], ...patch } },
+    })),
 }));
 
 export function isSuggestionEdited(suggestion: Suggestion, detail: string): boolean {

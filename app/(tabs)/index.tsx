@@ -1,5 +1,5 @@
 import * as DocumentPicker from 'expo-document-picker';
-import { AudioLines, FileText, Sparkles, Upload } from 'lucide-react-native';
+import { AudioLines, FileText, Sparkles, Upload, Waves } from 'lucide-react-native';
 import { Button, LinkButton, Surface, Typography } from 'heroui-native';
 import { router } from 'expo-router';
 import { ScrollView, View } from 'react-native';
@@ -16,6 +16,7 @@ export default function ProjectScreen() {
   const audioFileName = useStoryStore((state) => state.audioFileName);
   const audioMeta = useStoryStore((state) => state.audioMeta);
   const isSample = useStoryStore((state) => state.isSample);
+  const soundCount = useStoryStore((state) => state.sounds.length);
   const setManuscript = useStoryStore((state) => state.setManuscript);
   const setNarration = useStoryStore((state) => state.setNarration);
   const loadSample = useStoryStore((state) => state.loadSample);
@@ -91,6 +92,42 @@ export default function ProjectScreen() {
           actionLabel={audioFileName === null ? 'Select narration audio' : 'Replace narration'}
           onPress={() => void pickNarration()}
         />
+
+        <Surface className="border-border gap-4 rounded-2xl border p-5">
+          <View className="flex-row items-center gap-3">
+            <View className="bg-canvas h-10 w-10 items-center justify-center rounded-xl">
+              <Waves size={20} color={palette.sfx} />
+            </View>
+            <View className="flex-1">
+              <Typography type="body-xs" className="text-ink-soft tracking-widest uppercase">
+                Optional
+              </Typography>
+              <Typography type="body" weight="semibold" className="text-ink">
+                Sound library
+              </Typography>
+            </View>
+          </View>
+
+          <View className="gap-1">
+            <Typography
+              type="body"
+              weight={soundCount > 0 ? 'semibold' : 'normal'}
+              className={soundCount > 0 ? 'text-ink' : 'text-ink-soft'}
+            >
+              {soundCount === 0
+                ? 'No sound effects uploaded'
+                : `${soundCount} sound${soundCount === 1 ? '' : 's'} ready`}
+            </Typography>
+            <Typography type="body-sm" className="text-ink-soft">
+              Upload the effects you own — water, wind, crashing objects. A sound-effect suggestion
+              plays the one you pick.
+            </Typography>
+          </View>
+
+          <Button variant="secondary" size="md" onPress={() => router.push('/sounds')}>
+            <Button.Label>{soundCount === 0 ? 'Add sound effects' : 'Manage sounds'}</Button.Label>
+          </Button>
+        </Surface>
 
         <Surface variant="secondary" className="border-border gap-3 rounded-2xl border p-5">
           <View className="flex-row items-center justify-between">

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
+import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 
+import { ensureAudioSession } from '@/lib/audioSession';
 import { usePlayhead } from '@/hooks/usePlayhead';
 import { setPlayerVolume } from '@/lib/audioPlayback';
 
@@ -31,8 +32,6 @@ export type NarrationPlayer = {
   setVolume: (volume: number) => void;
 };
 
-let audioModeConfigured = false;
-
 /**
  * Plays the narration file the user picked, and reports its real position and
  * duration. With no file loaded (the sample project) it falls back to the
@@ -59,9 +58,8 @@ export function useNarrationPlayer(
   const [requestedPosition, setRequestedPosition] = useState<number | null>(null);
 
   useEffect(() => {
-    if (!isReal || audioModeConfigured) return;
-    audioModeConfigured = true;
-    void setAudioModeAsync({ playsInSilentMode: true }).catch(() => undefined);
+    if (!isReal) return;
+    ensureAudioSession();
   }, [isReal]);
 
   useEffect(() => {

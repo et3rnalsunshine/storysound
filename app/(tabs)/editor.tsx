@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AudioLines, ChevronRight, GitCompareArrows, Sparkles } from 'lucide-react-native';
+import { AudioLines, ChevronRight, GitCompareArrows, Sparkles, Waves } from 'lucide-react-native';
 import { Button, Spinner, Surface, Typography } from 'heroui-native';
 import { Pressable, ScrollView, View } from 'react-native';
 import { router } from 'expo-router';
@@ -10,8 +10,10 @@ import { Timeline } from '@/components/Timeline';
 import { TransportControls } from '@/components/TransportControls';
 import { useAssistedMix } from '@/hooks/useAssistedMix';
 import { useNarrationPlayer } from '@/hooks/useNarrationPlayer';
+import { useSfxScheduler } from '@/hooks/useSfxScheduler';
 import { useStoryTimeline } from '@/hooks/useStoryTimeline';
 import { useStoryStore } from '@/lib/store';
+import { isSfxSuggestion, sfxCuesFor } from '@/lib/sfx';
 import { formatTime, type Suggestion } from '@/lib/story';
 import { palette } from '@/lib/theme';
 
@@ -31,6 +33,8 @@ export default function EditorScreen() {
     suggestions,
     waveform,
     hasMeasuredWaveform,
+    sfxSettings,
+    sounds,
   } = useStoryTimeline();
 
   const player = useNarrationPlayer(audioUri, narrationSec);
@@ -55,6 +59,22 @@ export default function EditorScreen() {
     pause: player.pause,
     play: player.play,
   });
+
+  const sfxCues = useMemo(
+    () => sfxCuesFor(accepted, sfxSettings, sounds),
+    [accepted, sfxSettings, sounds],
+  );
+
+  useSfxScheduler({
+    cues: sfxCues,
+    enabled: sfxCues.length > 0,
+    position: player.position,
+    isPlaying: player.isPlaying,
+  });
+
+  const acceptedSfxWithoutSound = accepted.filter(
+    (item) => isSfxSuggestion(item) && sfxSettings[item.id]?.soundId == null,
+  ).length;
 
   const { pause, seek } = player;
   const openSuggestion = useCallback(
@@ -149,9 +169,21 @@ export default function EditorScreen() {
                 narrationSec,
                 hasMeasuredWaveform,
                 hasAccepted: accepted.length > 0,
+                sfxCount: sfxCues.length,
               })}
             </Typography>
           </View>
+
+          {acceptedSfxWithoutSound > 0 ? (
+            <View className="flex-row items-center gap-2">
+              <Waves size={14} color={palette.marker} />
+              <Typography type="body-xs" className="text-marker flex-1">
+                {acceptedSfxWithoutSound} accepted sound effect
+                {acceptedSfxWithoutSound === 1 ? '' : 's'} still need a sound file. Open the
+                suggestion and choose one to hear it.
+              </Typography>
+            </View>
+          ) : null}
         </View>
 
         <View className="gap-3">
@@ -192,6 +224,13 @@ export default function EditorScreen() {
           </Surface>
         </View>
 
+        <Button variant="secondary" size="lg" onPress={() => router.push('/sounds')}>
+          <Waves size={18} color={palette.ink} />
+          <Button.Label>
+            {sounds.length === 0 ? 'Add sound effects' : `Sound library · ${sounds.length}`}
+          </Button.Label>
+        </Button>
+
         <Button variant="secondary" size="lg" onPress={() => router.push('/(tabs)/compare')}>
           <GitCompareArrows size={18} color={palette.ink} />
           <Button.Label>Compare versions</Button.Label>
@@ -209,6 +248,8 @@ type PlaybackNoteOptions = {
   narrationSec: number;
   hasMeasuredWaveform: boolean;
   hasAccepted: boolean;
+  /** Accepted sound effects that have a file and will be heard. */
+  sfxCount: number;
 };
 
 /** Plain-language note about what the transport is actually playing. */
@@ -220,18 +261,25 @@ function playbackNote({
   narrationSec,
   hasMeasuredWaveform,
   hasAccepted,
+  sfxCount,
 }: PlaybackNoteOptions): string {
   if (hasError) {
     return 'This audio file could not be played. Pick another recording on the Project tab (m4a, mp3 or wav).';
   }
   if (isLoading) return 'Loading your narration…';
+
+  const sfx =
+    sfxCount === 0
+      ? ''
+      : ` · ${sfxCount} sound effect${sfxCount === 1 ? '' : 's'} play over the narration`;
+
   if (isSimulated) {
-    return `Sample project · timeline preview at ${formatTime(narrationSec)}, no audio file on this device.`;
+    return `Sample project · timeline preview at ${formatTime(narrationSec)}, no narration file on this device${sfx}.`;
   }
 
   const source = hasMeasuredWaveform
     ? 'waveform read from your file'
     : 'waveform matched to your file length';
   const mix = hasAccepted ? ' · accepted suggestions are applied while playing' : '';
-  return `Playing ${fileName ?? 'your narration'} · ${formatTime(narrationSec)} · ${source}${mix}`;
+  return `Playing ${fileName ?? 'your narration'} · ${formatTime(narrationSec)} · ${source}${mix}${sfx}`;
 }

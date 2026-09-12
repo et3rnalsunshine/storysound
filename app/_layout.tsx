@@ -162,6 +162,7 @@ function AppStack() {
         name="suggestion/[id]"
         options={{ headerShown: false, presentation: 'modal' }}
       />
+      <Stack.Screen name="sounds" options={{ headerShown: false, presentation: 'modal' }} />
     </Stack>
   );
 }

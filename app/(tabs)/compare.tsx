@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ArrowLeft, Check, Mic, Sparkles } from 'lucide-react-native';
+import { ArrowLeft, Check, Mic, Sparkles, Waves } from 'lucide-react-native';
 import { Button, Surface, Typography } from 'heroui-native';
 import { ScrollView, View } from 'react-native';
 import { router } from 'expo-router';
@@ -9,8 +9,16 @@ import { TransportControls } from '@/components/TransportControls';
 import { Waveform } from '@/components/Waveform';
 import { useAssistedMix } from '@/hooks/useAssistedMix';
 import { useNarrationPlayer } from '@/hooks/useNarrationPlayer';
+import { useSfxScheduler } from '@/hooks/useSfxScheduler';
 import { useStoryTimeline } from '@/hooks/useStoryTimeline';
 import { useStoryStore } from '@/lib/store';
+import {
+  formatCueTime,
+  formatSfxDuration,
+  formatSfxVolume,
+  isSfxSuggestion,
+  sfxCuesFor,
+} from '@/lib/sfx';
 import {
   BAR_GAP,
   BAR_WIDTH,
@@ -34,7 +42,7 @@ export default function CompareScreen() {
   const statuses = useStoryStore((state) => state.statuses);
   const details = useStoryStore((state) => state.details);
 
-  const { audioUri, narrationSec, suggestions, waveform } = useStoryTimeline();
+  const { audioUri, narrationSec, suggestions, waveform, sfxSettings, sounds } = useStoryTimeline();
 
   const original = useNarrationPlayer(audioUri, narrationSec);
   const assisted = useNarrationPlayer(audioUri, narrationSec);
@@ -70,6 +78,19 @@ export default function CompareScreen() {
     setVolume: assisted.setVolume,
     pause: assisted.pause,
     play: assisted.play,
+  });
+
+  const sfxCues = useMemo(
+    () => sfxCuesFor(accepted, sfxSettings, sounds),
+    [accepted, sfxSettings, sounds],
+  );
+
+  // Only the assisted player gets the sound effects. The original stays dry.
+  useSfxScheduler({
+    cues: sfxCues,
+    enabled: true,
+    position: assisted.position,
+    isPlaying: assisted.isPlaying,
   });
 
   if (!hasAnalysed) {
@@ -197,23 +218,43 @@ export default function CompareScreen() {
             </Surface>
           ) : (
             <Surface variant="secondary" className="border-border gap-3 rounded-2xl border p-4">
-              {accepted.map((item) => (
-                <View key={item.id} className="flex-row gap-3">
-                  <Check size={16} color={palette.success} />
-                  <View className="flex-1 gap-0.5">
-                    <Typography type="body-sm" weight="semibold" className="text-ink">
-                      {formatTime(item.timeSec)} · {TRACK_NAME[item.clip.track]}
-                    </Typography>
-                    <Typography type="body-sm" className="text-ink-soft">
-                      {details[item.id] ?? item.detail}
-                    </Typography>
+              {accepted.map((item) => {
+                const cue = sfxCues.find((entry) => entry.id === item.id);
+                const needsSound = isSfxSuggestion(item) && cue === undefined;
+
+                return (
+                  <View key={item.id} className="flex-row gap-3">
+                    {needsSound ? (
+                      <Waves size={16} color={palette.marker} />
+                    ) : (
+                      <Check size={16} color={palette.success} />
+                    )}
+                    <View className="flex-1 gap-0.5">
+                      <Typography type="body-sm" weight="semibold" className="text-ink">
+                        {formatTime(item.timeSec)} · {TRACK_NAME[item.clip.track]}
+                      </Typography>
+                      <Typography type="body-sm" className="text-ink-soft">
+                        {details[item.id] ?? item.detail}
+                      </Typography>
+                      {cue !== undefined ? (
+                        <Typography type="body-xs" className="text-sfx">
+                          {cue.soundName} · plays at {formatCueTime(cue.startSec)} for{' '}
+                          {formatSfxDuration(cue.durationSec)} at {formatSfxVolume(cue.volume)}
+                        </Typography>
+                      ) : null}
+                      {needsSound ? (
+                        <Typography type="body-xs" className="text-marker">
+                          No sound file chosen yet, so nothing is heard for this one.
+                        </Typography>
+                      ) : null}
+                    </View>
                   </View>
-                </View>
-              ))}
+                );
+              })}
               <Typography type="body-xs" className="text-ink-soft">
                 {assisted.isSimulated
-                  ? 'Load your own narration file to hear these changes applied while it plays.'
-                  : 'While the assisted version plays, accepted pauses stop the narration for their exact length and accepted mix notes change its level.'}
+                  ? `Sound effects play for real from your library${sfxCues.length > 0 ? '' : ' once you choose one'}. Load your own narration file to hear the pauses and level changes too.`
+                  : 'While the assisted version plays, accepted pauses stop the narration for their exact length, accepted mix notes change its level, and accepted sound effects play over it from your own files.'}
               </Typography>
             </Surface>
           )}
