@@ -7,7 +7,9 @@ import { View } from 'react-native';
 
 import { AnimatedView } from '@/components/ui/primitives/AnimatedView';
 import { SafeAreaView } from '@/components/ui/primitives/SafeAreaView';
+import { analyseNarration } from '@/lib/audioAnalysis';
 import { useStoryStore } from '@/lib/store';
+import { formatTime } from '@/lib/story';
 import { palette } from '@/lib/theme';
 
 const STAGES = [
@@ -24,10 +26,17 @@ const HANDOFF_MS = 700;
 export default function AnalysisScreen() {
   const manuscriptTitle = useStoryStore((state) => state.manuscriptTitle);
   const audioFileName = useStoryStore((state) => state.audioFileName);
+  const audioUri = useStoryStore((state) => state.audioUri);
+  const audioDurationSec = useStoryStore((state) => state.audioDurationSec);
   const completeAnalysis = useStoryStore((state) => state.completeAnalysis);
+  const setNarrationAnalysis = useStoryStore((state) => state.setNarrationAnalysis);
 
   const [completed, setCompleted] = useState(0);
+  const [fileState, setFileState] = useState<'reading' | 'read' | 'failed'>('reading');
   const progress = useSharedValue(0);
+
+  const isReadingFile = audioUri !== null && fileState === 'reading';
+  const couldNotRead = audioUri !== null && fileState === 'failed';
 
   useEffect(() => {
     // Reanimated SharedValue.value assignment is the documented API for driving animations
@@ -36,8 +45,33 @@ export default function AnalysisScreen() {
     progress.value = withTiming(completed / STAGES.length, { duration: 480 });
   }, [completed, progress]);
 
+  // Reads the real narration file while the stages animate: its length, and its
+  // waveform peaks where the platform can decode audio.
+  useEffect(() => {
+    if (audioUri === null) return undefined;
+
+    let isCancelled = false;
+
+    void analyseNarration(audioUri).then((result) => {
+      if (isCancelled) return;
+      if (result === null) {
+        setFileState('failed');
+        return;
+      }
+      setNarrationAnalysis(result.durationSec, result.peaks);
+      setFileState('read');
+    });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [audioUri, setNarrationAnalysis]);
+
   useEffect(() => {
     if (completed >= STAGES.length) {
+      // Hold on the last stage until the audio file has been read, so the editor
+      // opens with the real duration already in place.
+      if (isReadingFile) return undefined;
       completeAnalysis();
       const timer = setTimeout(() => router.replace('/(tabs)/editor'), HANDOFF_MS);
       return () => clearTimeout(timer);
@@ -45,7 +79,7 @@ export default function AnalysisScreen() {
 
     const timer = setTimeout(() => setCompleted((value) => value + 1), STAGE_MS);
     return () => clearTimeout(timer);
-  }, [completed, completeAnalysis]);
+  }, [completed, completeAnalysis, isReadingFile]);
 
   const barStyle = useAnimatedStyle(() => ({ width: `${progress.value * 100}%` }));
 
@@ -101,6 +135,27 @@ export default function AnalysisScreen() {
               </AnimatedView>
             );
           })}
+
+          {audioUri !== null ? (
+            <View className="border-border flex-row items-center gap-3 border-t pt-4">
+              <View className="h-6 w-6 items-center justify-center">
+                {isReadingFile ? (
+                  <Spinner size="sm" />
+                ) : couldNotRead ? (
+                  <View className="bg-lane-line h-2 w-2 rounded-full" />
+                ) : (
+                  <Check size={18} color={palette.success} />
+                )}
+              </View>
+              <Typography type="body-sm" className="text-ink-soft flex-1">
+                {isReadingFile
+                  ? 'Reading your audio file'
+                  : couldNotRead
+                    ? 'That audio file could not be read, so the timeline uses the sample length'
+                    : `Your narration is ${formatTime(audioDurationSec ?? 0)} long`}
+              </Typography>
+            </View>
+          ) : null}
         </Surface>
 
         <View className="gap-3">

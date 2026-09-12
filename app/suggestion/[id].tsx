@@ -3,8 +3,8 @@ import { KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 
 import { SuggestionCard } from '@/components/SuggestionCard';
+import { useStoryTimeline } from '@/hooks/useStoryTimeline';
 import { goBackOrReplace } from '@/lib/navigation';
-import { SUGGESTIONS } from '@/lib/story';
 
 function close() {
   goBackOrReplace('/(tabs)/editor');
@@ -12,7 +12,8 @@ function close() {
 
 export default function SuggestionModal() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const suggestion = SUGGESTIONS.find((item) => item.id === id);
+  const { suggestions } = useStoryTimeline();
+  const suggestion = suggestions.find((item) => item.id === id);
 
   return (
     <KeyboardAvoidingView

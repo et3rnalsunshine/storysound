@@ -36,11 +36,11 @@ export default function ProjectScreen() {
   const pickNarration = async () => {
     const result = await DocumentPicker.getDocumentAsync({
       type: 'audio/*',
-      copyToCacheDirectory: false,
+      copyToCacheDirectory: true,
     });
     const asset = result.canceled ? undefined : result.assets[0];
     if (!asset) return;
-    setNarration(asset.name, formatFileSize(asset.size));
+    setNarration(asset.name, formatFileSize(asset.size), asset.uri);
   };
 
   return (
@@ -114,6 +114,10 @@ export default function ProjectScreen() {
             <Upload size={16} color={palette.ink} />
             <Button.Label>Load sample project</Button.Label>
           </Button>
+          <Typography type="body-xs" className="text-ink-soft">
+            The sample runs as a timeline preview. Select your own narration file to hear real
+            playback in the editor.
+          </Typography>
         </Surface>
 
         <View className="gap-3">

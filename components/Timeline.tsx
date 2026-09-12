@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 import { Sparkles } from 'lucide-react-native';
 import { Typography } from 'heroui-native';
@@ -7,16 +7,15 @@ import { Waveform } from '@/components/Waveform';
 import type { SuggestionStatus } from '@/lib/store';
 import { palette } from '@/lib/theme';
 import {
+  BAR_GAP,
+  BAR_WIDTH,
+  fitWaveform,
   formatTime,
   LANE_HEIGHT,
   MARKER_STRIP_HEIGHT,
-  NARRATION_WAVEFORM,
-  PX_PER_SEC,
   RULER_HEIGHT,
-  SUGGESTIONS,
+  rulerStepFor,
   type Suggestion,
-  TIMELINE_SEC,
-  TIMELINE_WIDTH,
   TRACK_LABEL_WIDTH,
   TRACKS,
   type TrackId,
@@ -37,9 +36,20 @@ const LANE_ACCENT: Record<TrackId, { dot: string; clip: string; ghost: string; t
   sfx: { dot: 'bg-sfx', clip: 'bg-sfx', ghost: 'border-sfx', text: 'text-sfx' },
 };
 
-type TimelineProps = {
+type Geometry = {
+  /** Length of the loaded narration in seconds. */
+  narrationSec: number;
+  /** Length of the drawn strip, narration plus empty room. */
+  timelineSec: number;
+  pxPerSec: number;
+};
+
+type TimelineProps = Geometry & {
   position: number;
   isPlaying: boolean;
+  suggestions: Suggestion[];
+  /** Narration peaks, measured from the file when the platform allows it. */
+  waveform: number[];
   statuses: Record<string, SuggestionStatus>;
   selectedId: string | null;
   onSeek: (seconds: number) => void;
@@ -49,6 +59,11 @@ type TimelineProps = {
 export function Timeline({
   position,
   isPlaying,
+  suggestions,
+  waveform,
+  narrationSec,
+  timelineSec,
+  pxPerSec,
   statuses,
   selectedId,
   onSeek,
@@ -56,15 +71,16 @@ export function Timeline({
 }: TimelineProps) {
   const scrollRef = useRef<ScrollView>(null);
   const [viewportWidth, setViewportWidth] = useState(0);
+  const timelineWidth = timelineSec * pxPerSec;
 
   useEffect(() => {
     if (!isPlaying || viewportWidth === 0) return;
     const target = Math.max(
       0,
-      Math.min(TIMELINE_WIDTH - viewportWidth, position * PX_PER_SEC - viewportWidth * 0.45),
+      Math.min(timelineWidth - viewportWidth, position * pxPerSec - viewportWidth * 0.45),
     );
     scrollRef.current?.scrollTo({ x: target, animated: false });
-  }, [isPlaying, position, viewportWidth]);
+  }, [isPlaying, position, pxPerSec, timelineWidth, viewportWidth]);
 
   return (
     <View className="border-border bg-panel overflow-hidden rounded-2xl border">
@@ -77,15 +93,26 @@ export function Timeline({
           showsHorizontalScrollIndicator={false}
           onLayout={(event) => setViewportWidth(event.nativeEvent.layout.width)}
         >
-          <View style={{ width: TIMELINE_WIDTH }}>
-            <Ruler />
+          <View style={{ width: timelineWidth }}>
+            <Ruler timelineSec={timelineSec} pxPerSec={pxPerSec} />
             <MarkerStrip
+              suggestions={suggestions}
               statuses={statuses}
               selectedId={selectedId}
+              timelineWidth={timelineWidth}
+              pxPerSec={pxPerSec}
               onSelectSuggestion={onSelectSuggestion}
             />
-            <Lanes statuses={statuses} onSeek={onSeek} />
-            <Playhead position={position} />
+            <Lanes
+              suggestions={suggestions}
+              statuses={statuses}
+              waveform={waveform}
+              narrationSec={narrationSec}
+              timelineSec={timelineSec}
+              pxPerSec={pxPerSec}
+              onSeek={onSeek}
+            />
+            <Playhead position={position} pxPerSec={pxPerSec} />
           </View>
         </ScrollView>
       </View>
@@ -126,18 +153,26 @@ function TrackLabels() {
   );
 }
 
-function Ruler() {
-  const seconds = Array.from({ length: TIMELINE_SEC + 1 }, (_, index) => index);
+function Ruler({ timelineSec, pxPerSec }: { timelineSec: number; pxPerSec: number }) {
+  const { ticks, step } = useMemo(() => {
+    const labelStep = rulerStepFor(pxPerSec);
+    const tickStep = labelStep >= 5 ? labelStep / 5 : labelStep;
+    const count = Math.floor(timelineSec / tickStep);
+    return {
+      step: labelStep,
+      ticks: Array.from({ length: count + 1 }, (_, index) => index * tickStep),
+    };
+  }, [pxPerSec, timelineSec]);
 
   return (
     <View style={{ height: RULER_HEIGHT }} className="border-border bg-canvas border-b">
-      {seconds.map((second) => {
-        const isLabelled = second % 5 === 0;
+      {ticks.map((second) => {
+        const isLabelled = second % step === 0;
         return (
           <View
             key={second}
             className="absolute bottom-0 items-center"
-            style={{ left: second * PX_PER_SEC }}
+            style={{ left: second * pxPerSec }}
           >
             {isLabelled ? (
               <Typography type="body-xs" className="text-ink-soft" style={{ fontSize: 10 }}>
@@ -153,23 +188,30 @@ function Ruler() {
 }
 
 type MarkerStripProps = {
+  suggestions: Suggestion[];
   statuses: Record<string, SuggestionStatus>;
   selectedId: string | null;
+  timelineWidth: number;
+  pxPerSec: number;
   onSelectSuggestion: (suggestion: Suggestion) => void;
 };
 
-function MarkerStrip({ statuses, selectedId, onSelectSuggestion }: MarkerStripProps) {
+function MarkerStrip({
+  suggestions,
+  statuses,
+  selectedId,
+  timelineWidth,
+  pxPerSec,
+  onSelectSuggestion,
+}: MarkerStripProps) {
   return (
     <View style={{ height: MARKER_STRIP_HEIGHT }} className="border-border bg-canvas border-b">
-      {SUGGESTIONS.map((suggestion) => {
+      {suggestions.map((suggestion) => {
         const status = statuses[suggestion.id] ?? 'pending';
         const isSelected = selectedId === suggestion.id;
         const left = Math.max(
           0,
-          Math.min(
-            TIMELINE_WIDTH - MARKER_WIDTH,
-            suggestion.timeSec * PX_PER_SEC - MARKER_WIDTH / 2,
-          ),
+          Math.min(timelineWidth - MARKER_WIDTH, suggestion.timeSec * pxPerSec - MARKER_WIDTH / 2),
         );
 
         return (
@@ -225,17 +267,33 @@ function MarkerStrip({ statuses, selectedId, onSelectSuggestion }: MarkerStripPr
   );
 }
 
-type LanesProps = {
+type LanesProps = Geometry & {
+  suggestions: Suggestion[];
   statuses: Record<string, SuggestionStatus>;
+  waveform: number[];
   onSeek: (seconds: number) => void;
 };
 
-function Lanes({ statuses, onSeek }: LanesProps) {
+function Lanes({
+  suggestions,
+  statuses,
+  waveform,
+  narrationSec,
+  timelineSec,
+  pxPerSec,
+  onSeek,
+}: LanesProps) {
+  const timelineWidth = timelineSec * pxPerSec;
+  const bars = useMemo(() => {
+    const count = Math.max(1, Math.floor(timelineWidth / (BAR_WIDTH + BAR_GAP)));
+    return fitWaveform(waveform, count, timelineSec > 0 ? narrationSec / timelineSec : 1);
+  }, [narrationSec, timelineSec, timelineWidth, waveform]);
+
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel="Move playhead"
-      onPress={(event) => onSeek(event.nativeEvent.locationX / PX_PER_SEC)}
+      onPress={(event) => onSeek(event.nativeEvent.locationX / pxPerSec)}
     >
       <View style={{ height: LANES_HEIGHT }}>
         {TRACKS.map((track, index) => (
@@ -246,7 +304,7 @@ function Lanes({ statuses, onSeek }: LanesProps) {
           >
             {track.id === 'narration' ? (
               <Waveform
-                values={NARRATION_WAVEFORM}
+                values={bars}
                 height={LANE_HEIGHT - 18}
                 barClassName="bg-narration-soft"
                 className="px-0"
@@ -255,14 +313,20 @@ function Lanes({ statuses, onSeek }: LanesProps) {
           </View>
         ))}
 
-        {SUGGESTIONS.map((suggestion) => {
+        <View
+          pointerEvents="none"
+          className="bg-lane-line/60 absolute w-px"
+          style={{ left: narrationSec * pxPerSec, top: 0, height: LANES_HEIGHT }}
+        />
+
+        {suggestions.map((suggestion) => {
           const status = statuses[suggestion.id] ?? 'pending';
           if (status === 'rejected') return null;
 
           const laneIndex = TRACKS.findIndex((track) => track.id === suggestion.clip.track);
           const { clip } = suggestion;
-          const left = clip.startSec * PX_PER_SEC;
-          const width = Math.max(18, (clip.endSec - clip.startSec) * PX_PER_SEC);
+          const left = clip.startSec * pxPerSec;
+          const width = Math.max(18, (clip.endSec - clip.startSec) * pxPerSec);
           const accent = LANE_ACCENT[clip.track];
           const isApplied = status === 'accepted';
 
@@ -296,11 +360,11 @@ function Lanes({ statuses, onSeek }: LanesProps) {
           );
         })}
 
-        {SUGGESTIONS.map((suggestion) => (
+        {suggestions.map((suggestion) => (
           <View
             key={`line-${suggestion.id}`}
             className="bg-marker/40 absolute w-px"
-            style={{ left: suggestion.timeSec * PX_PER_SEC, top: 0, height: LANES_HEIGHT }}
+            style={{ left: suggestion.timeSec * pxPerSec, top: 0, height: LANES_HEIGHT }}
             pointerEvents="none"
           />
         ))}
@@ -309,13 +373,13 @@ function Lanes({ statuses, onSeek }: LanesProps) {
   );
 }
 
-function Playhead({ position }: { position: number }) {
+function Playhead({ position, pxPerSec }: { position: number; pxPerSec: number }) {
   return (
     <View
       pointerEvents="none"
       className="absolute items-center"
       style={{
-        left: position * PX_PER_SEC - 5,
+        left: position * pxPerSec - 5,
         top: 0,
         height: RULER_HEIGHT + MARKER_STRIP_HEIGHT + LANES_HEIGHT,
         width: 10,

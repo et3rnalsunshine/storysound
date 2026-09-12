@@ -7,17 +7,16 @@ import { router } from 'expo-router';
 import { SafeAreaView } from '@/components/ui/primitives/SafeAreaView';
 import { TransportControls } from '@/components/TransportControls';
 import { Waveform } from '@/components/Waveform';
-import { usePlayhead } from '@/hooks/usePlayhead';
+import { useAssistedMix } from '@/hooks/useAssistedMix';
+import { useNarrationPlayer } from '@/hooks/useNarrationPlayer';
+import { useStoryTimeline } from '@/hooks/useStoryTimeline';
 import { useStoryStore } from '@/lib/store';
 import {
   BAR_GAP,
   BAR_WIDTH,
   formatTime,
-  NARRATION_WAVEFORM,
   resampleWaveform,
   type Suggestion,
-  SUGGESTIONS,
-  TIMELINE_SEC,
   TRACK_NAME,
 } from '@/lib/story';
 import { palette } from '@/lib/theme';
@@ -35,21 +34,43 @@ export default function CompareScreen() {
   const statuses = useStoryStore((state) => state.statuses);
   const details = useStoryStore((state) => state.details);
 
-  const original = usePlayhead(TIMELINE_SEC);
-  const assisted = usePlayhead(TIMELINE_SEC);
+  const { audioUri, narrationSec, suggestions, waveform } = useStoryTimeline();
+
+  const original = useNarrationPlayer(audioUri, narrationSec);
+  const assisted = useNarrationPlayer(audioUri, narrationSec);
   const [waveWidth, setWaveWidth] = useState(0);
   const barCount = Math.max(24, Math.floor(waveWidth / (BAR_WIDTH + BAR_GAP)) || 60);
 
   const accepted = useMemo(
-    () => SUGGESTIONS.filter((item) => statuses[item.id] === 'accepted'),
-    [statuses],
+    () => suggestions.filter((item) => statuses[item.id] === 'accepted'),
+    [statuses, suggestions],
   );
 
-  const originalBars = useMemo(() => resampleWaveform(NARRATION_WAVEFORM, barCount), [barCount]);
+  const originalBars = useMemo(() => resampleWaveform(waveform, barCount), [barCount, waveform]);
   const assistedBars = useMemo(
-    () => applyAccepted(originalBars, accepted),
-    [originalBars, accepted],
+    () => applyAccepted(originalBars, accepted, narrationSec),
+    [accepted, narrationSec, originalBars],
   );
+
+  useAssistedMix({
+    accepted,
+    enabled: false,
+    position: original.position,
+    isPlaying: original.isPlaying,
+    setVolume: original.setVolume,
+    pause: original.pause,
+    play: original.play,
+  });
+
+  useAssistedMix({
+    accepted,
+    enabled: true,
+    position: assisted.position,
+    isPlaying: assisted.isPlaying,
+    setVolume: assisted.setVolume,
+    pause: assisted.pause,
+    play: assisted.play,
+  });
 
   if (!hasAnalysed) {
     return (
@@ -115,7 +136,7 @@ export default function CompareScreen() {
           <TransportControls
             isPlaying={original.isPlaying}
             position={original.position}
-            duration={TIMELINE_SEC}
+            duration={original.durationSec}
             onToggle={playOriginal}
             onRestart={original.reset}
             onSeek={original.seek}
@@ -144,8 +165,8 @@ export default function CompareScreen() {
                     key={item.id}
                     className={cn('absolute h-full rounded-md', CLIP_COLOR[item.clip.track])}
                     style={{
-                      left: `${(item.clip.startSec / TIMELINE_SEC) * 100}%`,
-                      width: `${((item.clip.endSec - item.clip.startSec) / TIMELINE_SEC) * 100}%`,
+                      left: `${(item.clip.startSec / narrationSec) * 100}%`,
+                      width: `${((item.clip.endSec - item.clip.startSec) / narrationSec) * 100}%`,
                     }}
                   />
                 ))}
@@ -155,7 +176,7 @@ export default function CompareScreen() {
           <TransportControls
             isPlaying={assisted.isPlaying}
             position={assisted.position}
-            duration={TIMELINE_SEC}
+            duration={assisted.durationSec}
             onToggle={playAssisted}
             onRestart={assisted.reset}
             onSeek={assisted.seek}
@@ -189,6 +210,11 @@ export default function CompareScreen() {
                   </View>
                 </View>
               ))}
+              <Typography type="body-xs" className="text-ink-soft">
+                {assisted.isSimulated
+                  ? 'Load your own narration file to hear these changes applied while it plays.'
+                  : 'While the assisted version plays, accepted pauses stop the narration for their exact length and accepted mix notes change its level.'}
+              </Typography>
             </Surface>
           )}
         </View>
@@ -210,8 +236,9 @@ export default function CompareScreen() {
 }
 
 /** Reflects accepted suggestions in the compared waveform. */
-function applyAccepted(bars: number[], accepted: Suggestion[]): number[] {
-  const secPerBar = TIMELINE_SEC / bars.length;
+function applyAccepted(bars: number[], accepted: Suggestion[], narrationSec: number): number[] {
+  if (bars.length === 0) return bars;
+  const secPerBar = narrationSec / bars.length;
 
   return bars.map((value, index) => {
     const seconds = index * secPerBar;

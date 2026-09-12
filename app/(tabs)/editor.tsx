@@ -1,6 +1,6 @@
-import { useCallback, useState } from 'react';
-import { ChevronRight, GitCompareArrows, Sparkles } from 'lucide-react-native';
-import { Button, Surface, Typography } from 'heroui-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { AudioLines, ChevronRight, GitCompareArrows, Sparkles } from 'lucide-react-native';
+import { Button, Spinner, Surface, Typography } from 'heroui-native';
 import { Pressable, ScrollView, View } from 'react-native';
 import { router } from 'expo-router';
 
@@ -8,20 +8,55 @@ import { SafeAreaView } from '@/components/ui/primitives/SafeAreaView';
 import { StatusPill } from '@/components/StatusPill';
 import { Timeline } from '@/components/Timeline';
 import { TransportControls } from '@/components/TransportControls';
-import { usePlayhead } from '@/hooks/usePlayhead';
+import { useAssistedMix } from '@/hooks/useAssistedMix';
+import { useNarrationPlayer } from '@/hooks/useNarrationPlayer';
+import { useStoryTimeline } from '@/hooks/useStoryTimeline';
 import { useStoryStore } from '@/lib/store';
-import { formatTime, type Suggestion, SUGGESTIONS, TIMELINE_SEC } from '@/lib/story';
+import { formatTime, type Suggestion } from '@/lib/story';
 import { palette } from '@/lib/theme';
 
 export default function EditorScreen() {
   const hasAnalysed = useStoryStore((state) => state.hasAnalysed);
   const manuscriptTitle = useStoryStore((state) => state.manuscriptTitle);
+  const audioFileName = useStoryStore((state) => state.audioFileName);
   const statuses = useStoryStore((state) => state.statuses);
   const details = useStoryStore((state) => state.details);
+  const setNarrationDuration = useStoryStore((state) => state.setNarrationDuration);
 
-  const { position, isPlaying, toggle, pause, seek, reset } = usePlayhead(TIMELINE_SEC);
+  const {
+    audioUri,
+    narrationSec,
+    timelineSec,
+    pxPerSec,
+    suggestions,
+    waveform,
+    hasMeasuredWaveform,
+  } = useStoryTimeline();
+
+  const player = useNarrationPlayer(audioUri, narrationSec);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
+  const { measuredDurationSec } = player;
+  useEffect(() => {
+    if (measuredDurationSec !== null) setNarrationDuration(measuredDurationSec);
+  }, [measuredDurationSec, setNarrationDuration]);
+
+  const accepted = useMemo(
+    () => suggestions.filter((item) => statuses[item.id] === 'accepted'),
+    [statuses, suggestions],
+  );
+
+  useAssistedMix({
+    accepted,
+    enabled: accepted.length > 0,
+    position: player.position,
+    isPlaying: player.isPlaying,
+    setVolume: player.setVolume,
+    pause: player.pause,
+    play: player.play,
+  });
+
+  const { pause, seek } = player;
   const openSuggestion = useCallback(
     (suggestion: Suggestion) => {
       pause();
@@ -51,7 +86,7 @@ export default function EditorScreen() {
     );
   }
 
-  const decided = SUGGESTIONS.filter((item) => {
+  const decided = suggestions.filter((item) => {
     const status = statuses[item.id];
     return status === 'accepted' || status === 'rejected';
   }).length;
@@ -70,28 +105,54 @@ export default function EditorScreen() {
             {manuscriptTitle ?? 'Your story'}
           </Typography>
           <Typography type="body-sm" className="text-ink-soft">
-            {decided} of {SUGGESTIONS.length} suggestions decided · your narration is never changed
+            {decided} of {suggestions.length} suggestions decided · your narration is never changed
             without you
           </Typography>
         </View>
 
         <Timeline
-          position={position}
-          isPlaying={isPlaying}
+          position={player.position}
+          isPlaying={player.isPlaying}
+          suggestions={suggestions}
+          waveform={waveform}
+          narrationSec={narrationSec}
+          timelineSec={timelineSec}
+          pxPerSec={pxPerSec}
           statuses={statuses}
           selectedId={selectedId}
-          onSeek={seek}
+          onSeek={player.seek}
           onSelectSuggestion={openSuggestion}
         />
 
-        <TransportControls
-          isPlaying={isPlaying}
-          position={position}
-          duration={TIMELINE_SEC}
-          onToggle={toggle}
-          onRestart={reset}
-          onSeek={seek}
-        />
+        <View className="gap-3">
+          <TransportControls
+            isPlaying={player.isPlaying}
+            position={player.position}
+            duration={player.durationSec}
+            onToggle={player.toggle}
+            onRestart={player.reset}
+            onSeek={player.seek}
+          />
+
+          <View className="flex-row items-center gap-2">
+            {player.isLoading ? (
+              <Spinner size="sm" />
+            ) : (
+              <AudioLines size={14} color={palette.sfx} />
+            )}
+            <Typography type="body-xs" className="text-ink-soft flex-1" numberOfLines={2}>
+              {playbackNote({
+                fileName: audioFileName,
+                isSimulated: player.isSimulated,
+                isLoading: player.isLoading,
+                hasError: player.error !== null,
+                narrationSec,
+                hasMeasuredWaveform,
+                hasAccepted: accepted.length > 0,
+              })}
+            </Typography>
+          </View>
+        </View>
 
         <View className="gap-3">
           <View className="flex-row items-center gap-2">
@@ -105,7 +166,7 @@ export default function EditorScreen() {
           </View>
 
           <Surface className="border-border overflow-hidden rounded-2xl border">
-            {SUGGESTIONS.map((suggestion, index) => (
+            {suggestions.map((suggestion, index) => (
               <Pressable
                 key={suggestion.id}
                 onPress={() => openSuggestion(suggestion)}
@@ -138,4 +199,39 @@ export default function EditorScreen() {
       </ScrollView>
     </SafeAreaView>
   );
+}
+
+type PlaybackNoteOptions = {
+  fileName: string | null;
+  isSimulated: boolean;
+  isLoading: boolean;
+  hasError: boolean;
+  narrationSec: number;
+  hasMeasuredWaveform: boolean;
+  hasAccepted: boolean;
+};
+
+/** Plain-language note about what the transport is actually playing. */
+function playbackNote({
+  fileName,
+  isSimulated,
+  isLoading,
+  hasError,
+  narrationSec,
+  hasMeasuredWaveform,
+  hasAccepted,
+}: PlaybackNoteOptions): string {
+  if (hasError) {
+    return 'This audio file could not be played. Pick another recording on the Project tab (m4a, mp3 or wav).';
+  }
+  if (isLoading) return 'Loading your narration…';
+  if (isSimulated) {
+    return `Sample project · timeline preview at ${formatTime(narrationSec)}, no audio file on this device.`;
+  }
+
+  const source = hasMeasuredWaveform
+    ? 'waveform read from your file'
+    : 'waveform matched to your file length';
+  const mix = hasAccepted ? ' · accepted suggestions are applied while playing' : '';
+  return `Playing ${fileName ?? 'your narration'} · ${formatTime(narrationSec)} · ${source}${mix}`;
 }

@@ -2,20 +2,20 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 const TICK_MS = 60;
 
-type Playhead = {
+export type Playhead = {
   /** Current position in seconds. */
   position: number;
   isPlaying: boolean;
   toggle: () => void;
+  play: () => void;
   pause: () => void;
   seek: (seconds: number) => void;
   reset: () => void;
 };
 
 /**
- * Simulated transport for the prototype timeline. Advances a playhead in real
- * time so the timeline, markers and comparison players can be scrubbed and
- * played without decoding audio.
+ * Timer-driven transport, used for the sample project, which has no audio file
+ * on the device. Real narration files are played by `useNarrationPlayer`.
  */
 export function usePlayhead(durationSec: number): Playhead {
   const [position, setPosition] = useState(0);
@@ -52,6 +52,7 @@ export function usePlayhead(durationSec: number): Playhead {
   }, [isPlaying, durationSec, apply]);
 
   const toggle = useCallback(() => setIsPlaying((value) => !value), []);
+  const play = useCallback(() => setIsPlaying(true), []);
   const pause = useCallback(() => setIsPlaying(false), []);
 
   const seek = useCallback(
@@ -66,5 +67,5 @@ export function usePlayhead(durationSec: number): Playhead {
     apply(0);
   }, [apply]);
 
-  return { position, isPlaying, toggle, pause, seek, reset };
+  return { position, isPlaying, toggle, play, pause, seek, reset };
 }

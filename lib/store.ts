@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-import { SUGGESTIONS, type Suggestion } from '@/lib/story';
+import { SAMPLE_PROJECT, SUGGESTIONS, type Suggestion } from '@/lib/story';
 
 export type SuggestionStatus = 'pending' | 'edited' | 'accepted' | 'rejected';
 
@@ -10,13 +10,21 @@ type StoryState = {
   manuscriptMeta: string | null;
   audioFileName: string | null;
   audioMeta: string | null;
+  /** Playable URI of the picked narration file. `null` for the sample project. */
+  audioUri: string | null;
+  /** Real narration length in seconds, once the file has been read. */
+  audioDurationSec: number | null;
+  /** Measured waveform peaks, when the platform can decode the file. */
+  audioPeaks: number[] | null;
   isSample: boolean;
   hasAnalysed: boolean;
   /** Suggestion text, editable by the user. Keyed by suggestion id. */
   details: Record<string, string>;
   statuses: Record<string, SuggestionStatus>;
   setManuscript: (title: string, fileName: string, meta: string | null) => void;
-  setNarration: (fileName: string, meta: string | null) => void;
+  setNarration: (fileName: string, meta: string | null, uri: string | null) => void;
+  setNarrationAnalysis: (durationSec: number, peaks: number[] | null) => void;
+  setNarrationDuration: (durationSec: number) => void;
   loadSample: () => void;
   clearProject: () => void;
   completeAnalysis: () => void;
@@ -43,6 +51,9 @@ export const useStoryStore = create<StoryState>()((set) => ({
   manuscriptMeta: null,
   audioFileName: null,
   audioMeta: null,
+  audioUri: null,
+  audioDurationSec: null,
+  audioPeaks: null,
   isSample: false,
   hasAnalysed: false,
   details: initialDetails(),
@@ -56,16 +67,40 @@ export const useStoryStore = create<StoryState>()((set) => ({
       isSample: false,
     }),
 
-  setNarration: (fileName, meta) =>
-    set({ audioFileName: fileName, audioMeta: meta, isSample: false }),
+  setNarration: (fileName, meta, uri) =>
+    set({
+      audioFileName: fileName,
+      audioMeta: meta,
+      audioUri: uri,
+      audioDurationSec: null,
+      audioPeaks: null,
+      isSample: false,
+    }),
+
+  setNarrationAnalysis: (durationSec, peaks) =>
+    set({
+      audioDurationSec: durationSec > 0 ? durationSec : null,
+      audioPeaks: peaks !== null && peaks.length > 0 ? peaks : null,
+    }),
+
+  setNarrationDuration: (durationSec) =>
+    set((state) => {
+      if (durationSec <= 0) return state;
+      const known = state.audioDurationSec;
+      if (known !== null && Math.abs(known - durationSec) < 0.05) return state;
+      return { audioDurationSec: durationSec };
+    }),
 
   loadSample: () =>
     set({
-      manuscriptTitle: 'The Five-Minute Tornado',
-      manuscriptFileName: 'five-minute-tornado.docx',
-      manuscriptMeta: '812 words',
-      audioFileName: 'nourinette-narration-take-3.m4a',
-      audioMeta: '00:42 · 6.4 MB',
+      manuscriptTitle: SAMPLE_PROJECT.manuscriptTitle,
+      manuscriptFileName: SAMPLE_PROJECT.manuscriptFileName,
+      manuscriptMeta: `${SAMPLE_PROJECT.manuscriptWordCount} words`,
+      audioFileName: SAMPLE_PROJECT.audioFileName,
+      audioMeta: SAMPLE_PROJECT.audioLabel,
+      audioUri: null,
+      audioDurationSec: SAMPLE_PROJECT.narrationEndSec,
+      audioPeaks: null,
       isSample: true,
     }),
 
@@ -76,6 +111,9 @@ export const useStoryStore = create<StoryState>()((set) => ({
       manuscriptMeta: null,
       audioFileName: null,
       audioMeta: null,
+      audioUri: null,
+      audioDurationSec: null,
+      audioPeaks: null,
       isSample: false,
       hasAnalysed: false,
       details: initialDetails(),

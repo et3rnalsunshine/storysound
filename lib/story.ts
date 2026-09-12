@@ -1,7 +1,10 @@
 /**
- * Static story data for the StorySound prototype: the sample project, the AI
- * suggestions produced by the demo analysis, timeline geometry and a
- * deterministic waveform for the narration track.
+ * Story data and timeline geometry for StorySound.
+ *
+ * The AI suggestions are authored against the sample narration (42 s). When a
+ * real narration file is loaded, `scaleSuggestions` maps those moments onto the
+ * real duration and the timeline geometry is derived from it, so the ruler, the
+ * markers and the waveform all line up with the audio that is actually playing.
  */
 
 export type TrackId = 'narration' | 'music' | 'sfx';
@@ -52,6 +55,9 @@ export const SAMPLE_PROJECT = {
   blurb: 'A short family story about a bathroom flood that grows out of control.',
 } as const;
 
+/** Narration length the suggestions below were written for. */
+export const BASE_NARRATION_SEC = SAMPLE_PROJECT.narrationEndSec;
+
 export const SUGGESTIONS: Suggestion[] = [
   {
     id: 's1',
@@ -96,19 +102,81 @@ export const SUGGESTIONS: Suggestion[] = [
   },
 ];
 
-/** Timeline geometry. One second of audio is PX_PER_SEC wide. */
-export const TIMELINE_SEC = 45;
-export const PX_PER_SEC = 30;
-export const TIMELINE_WIDTH = TIMELINE_SEC * PX_PER_SEC;
+/** Timeline geometry. */
+export const BASE_PX_PER_SEC = 30;
+export const MIN_PX_PER_SEC = 9;
+/** Longest scrollable strip we draw, so long files stay smooth. */
+export const MAX_TIMELINE_WIDTH = 4500;
+/** Empty room drawn after the narration ends. */
+export const TIMELINE_TAIL_SEC = 3;
 export const TRACK_LABEL_WIDTH = 104;
 export const LANE_HEIGHT = 62;
 export const RULER_HEIGHT = 26;
 export const MARKER_STRIP_HEIGHT = 36;
 
-/** Waveform resolution: BAR_WIDTH + BAR_GAP must divide PX_PER_SEC evenly. */
+/** Waveform resolution. */
 export const BAR_WIDTH = 3;
 export const BAR_GAP = 2;
-const BARS_PER_SEC = PX_PER_SEC / (BAR_WIDTH + BAR_GAP);
+export const BARS_PER_SEC = BASE_PX_PER_SEC / (BAR_WIDTH + BAR_GAP);
+
+export function safeNarrationSec(narrationSec: number | null | undefined): number {
+  if (typeof narrationSec !== 'number' || !Number.isFinite(narrationSec) || narrationSec <= 0) {
+    return BASE_NARRATION_SEC;
+  }
+  return narrationSec;
+}
+
+/** Total timeline length: the narration plus a little empty room after it. */
+export function timelineSecFor(narrationSec: number): number {
+  return Math.ceil(safeNarrationSec(narrationSec)) + TIMELINE_TAIL_SEC;
+}
+
+/** Horizontal zoom, reduced for long files so the strip stays a sane width. */
+export function pxPerSecFor(timelineSec: number): number {
+  if (timelineSec <= 0) return BASE_PX_PER_SEC;
+  return Math.max(MIN_PX_PER_SEC, Math.min(BASE_PX_PER_SEC, MAX_TIMELINE_WIDTH / timelineSec));
+}
+
+const RULER_STEPS = [1, 2, 5, 10, 15, 30, 60, 120, 300];
+
+/** Seconds between ruler labels, kept at roughly one label per 84 px. */
+export function rulerStepFor(pxPerSec: number): number {
+  const target = 84 / pxPerSec;
+  return RULER_STEPS.find((step) => step >= target) ?? 600;
+}
+
+function round1(value: number): number {
+  return Math.round(value * 10) / 10;
+}
+
+/**
+ * Maps the authored suggestion moments onto a real narration length. Pauses keep
+ * their absolute length; story regions stretch with the recording.
+ */
+export function scaleSuggestions(narrationSec: number): Suggestion[] {
+  const safe = safeNarrationSec(narrationSec);
+  if (Math.abs(safe - BASE_NARRATION_SEC) < 0.05) return SUGGESTIONS;
+
+  const ratio = safe / BASE_NARRATION_SEC;
+
+  return SUGGESTIONS.map((suggestion) => {
+    const startSec = round1(Math.min(safe, suggestion.clip.startSec * ratio));
+    const clipLength =
+      suggestion.kind === 'pause'
+        ? suggestion.clip.endSec - suggestion.clip.startSec
+        : (suggestion.clip.endSec - suggestion.clip.startSec) * ratio;
+
+    return {
+      ...suggestion,
+      timeSec: round1(Math.min(safe, suggestion.timeSec * ratio)),
+      clip: {
+        ...suggestion.clip,
+        startSec,
+        endSec: round1(Math.min(safe, startSec + clipLength)),
+      },
+    };
+  });
+}
 
 function createRandom(seed: number): () => number {
   let state = seed;
@@ -118,37 +186,43 @@ function createRandom(seed: number): () => number {
   };
 }
 
-/** Loudness envelope that follows the beats of the sample story. */
-function envelopeAt(seconds: number): number {
-  if (seconds > SAMPLE_PROJECT.narrationEndSec) return 0.03;
-  if (seconds < 7) return 0.34;
-  if (seconds < 9) return 0.42;
-  if (seconds < 16) return 0.52;
-  if (seconds < 23) return 0.68;
-  if (seconds < 31) return 0.92;
-  if (seconds < 38) return 0.6;
+/** Loudness envelope that follows the beats of the story, as a 0..1 progress. */
+function envelopeAt(progress: number): number {
+  if (progress < 0.167) return 0.34;
+  if (progress < 0.214) return 0.42;
+  if (progress < 0.381) return 0.52;
+  if (progress < 0.548) return 0.68;
+  if (progress < 0.738) return 0.92;
+  if (progress < 0.905) return 0.6;
   return 0.4;
 }
 
-function buildNarrationWaveform(): number[] {
+/**
+ * Placeholder narration waveform, used when the real peaks are not available
+ * (the sample project, or a platform without audio decoding). It is stretched to
+ * the real narration length so it stays aligned with playback.
+ */
+export function buildNarrationWaveform(narrationSec: number): number[] {
+  const safe = safeNarrationSec(narrationSec);
   const random = createRandom(20260912);
-  const bars = Math.round(TIMELINE_SEC * BARS_PER_SEC);
+  const bars = Math.max(1, Math.round(safe * BARS_PER_SEC));
   const values: number[] = [];
 
   for (let index = 0; index < bars; index += 1) {
-    const seconds = index / BARS_PER_SEC;
+    const progress = index / bars;
     const syllable = 0.72 + 0.28 * Math.abs(Math.sin(index * 1.15));
     const jitter = 0.62 + 0.38 * random();
-    values.push(Math.min(1, envelopeAt(seconds) * syllable * jitter));
+    values.push(Math.min(1, envelopeAt(progress) * syllable * jitter));
   }
 
   return values;
 }
 
-export const NARRATION_WAVEFORM = buildNarrationWaveform();
-
-/** Down-samples the narration waveform to a fixed number of bars. */
+/** Down-samples a waveform to a fixed number of bars. */
 export function resampleWaveform(source: number[], bars: number): number[] {
+  if (bars <= 0) return [];
+  if (source.length === 0) return Array.from({ length: bars }, () => 0.03);
+
   const step = source.length / bars;
   const out: number[] = [];
 
@@ -163,6 +237,18 @@ export function resampleWaveform(source: number[], bars: number): number[] {
   }
 
   return out;
+}
+
+/**
+ * Fits a narration waveform into a wider strip: the recording fills
+ * `filledRatio` of the bars, the rest is drawn as room tone.
+ */
+export function fitWaveform(source: number[], bars: number, filledRatio: number): number[] {
+  if (bars <= 0) return [];
+  const filled = Math.max(1, Math.min(bars, Math.round(bars * filledRatio)));
+  const values = resampleWaveform(source, filled);
+  while (values.length < bars) values.push(0.03);
+  return values;
 }
 
 export function formatTime(seconds: number): string {
