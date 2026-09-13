@@ -33,7 +33,7 @@ type SfxTimingPanelProps = {
   currentPlayhead: number;
   onChangeStart: (startSec: number) => void;
   onUsePlayhead: () => void;
-  onPlayFromHere: () => void;
+  onPlayFromHere: (startSec: number, durationSec: number) => void;
   onEdit: () => void;
   onReject: () => void;
   onBeforePreview?: () => void;
@@ -59,6 +59,7 @@ export function SfxTimingPanel({
   const displayName = soundDisplayName(sound, suggestion.clip.label);
   const isPreviewing = preview.playingId === suggestion.id;
   const isPreviewLoading = preview.loadingId === suggestion.id;
+  const playFromHereTarget = Math.max(0, settings.startSec - 2);
 
   const updateStart = (startSec: number) => {
     setStartText(formatCueTime(startSec));
@@ -196,12 +197,21 @@ export function SfxTimingPanel({
         </View>
       ) : null}
 
+      <View className="bg-canvas border-border gap-1 rounded-xl border px-3 py-2">
+        <Typography type="body-xs" className="text-ink-soft">
+          Current selected SFX startSec: {settings.startSec.toFixed(1)}
+        </Typography>
+        <Typography type="body-xs" className="text-ink-soft">
+          Play-from-here seek target: {playFromHereTarget.toFixed(1)}
+        </Typography>
+      </View>
+
       <View className="flex-row flex-wrap gap-2">
         <Button size="sm" variant="secondary" onPress={onUsePlayhead}>
           <LocateFixed size={15} color={palette.ink} />
           <Button.Label>Use current playhead</Button.Label>
         </Button>
-        <Button size="sm" onPress={onPlayFromHere}>
+        <Button size="sm" onPress={() => onPlayFromHere(settings.startSec, settings.durationSec)}>
           <Play size={15} color={palette.paper} fill={palette.paper} />
           <Button.Label>Play from here</Button.Label>
         </Button>

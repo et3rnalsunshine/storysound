@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Check, Mic, Sparkles, Waves } from 'lucide-react-native';
 import { Button, Surface, Typography } from 'heroui-native';
 import { Pressable, ScrollView, View } from 'react-native';
@@ -45,6 +45,14 @@ export default function CompareScreen() {
   const assisted = useNarrationPlayer(audioUri, narrationSec);
   const [waveWidth, setWaveWidth] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const playFromHereTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (playFromHereTimerRef.current !== null) clearTimeout(playFromHereTimerRef.current);
+    },
+    [],
+  );
   const barCount = Math.max(24, Math.floor(waveWidth / (BAR_WIDTH + BAR_GAP)) || 60);
 
   const accepted = useMemo(
@@ -118,13 +126,26 @@ export default function CompareScreen() {
     [setSfxOverride],
   );
 
-  const playSelectedFromHere = useCallback(() => {
-    if (selectedSfx === null) return;
-    original.pause();
-    assisted.pause();
-    assisted.seek(Math.max(0, selectedSfx.timeSec - 2));
-    assisted.play();
-  }, [assisted, original, selectedSfx]);
+  const playSelectedFromHere = useCallback(
+    (startSec: number, durationSec: number) => {
+      if (!Number.isFinite(startSec) || !Number.isFinite(durationSec)) return;
+
+      const liveStartSec = Math.max(0, startSec);
+      const seekTarget = Math.max(0, liveStartSec - 2);
+      const auditionLengthSec = liveStartSec - seekTarget + Math.max(0, durationSec) + 2;
+
+      if (playFromHereTimerRef.current !== null) clearTimeout(playFromHereTimerRef.current);
+      original.pause();
+      assisted.pause();
+      assisted.seek(seekTarget);
+      assisted.play();
+      playFromHereTimerRef.current = setTimeout(() => {
+        assisted.pause();
+        playFromHereTimerRef.current = null;
+      }, auditionLengthSec * 1000);
+    },
+    [assisted, original],
+  );
 
   const seekOriginal = useCallback(
     (seconds: number) => {

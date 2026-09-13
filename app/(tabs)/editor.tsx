@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AudioLines, ChevronRight, GitCompareArrows, Sparkles, Waves } from 'lucide-react-native';
 import { Button, Spinner, Surface, Typography } from 'heroui-native';
 import { Pressable, ScrollView, View } from 'react-native';
@@ -42,6 +42,14 @@ export default function EditorScreen() {
 
   const player = useNarrationPlayer(audioUri, narrationSec);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const playFromHereTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (playFromHereTimerRef.current !== null) clearTimeout(playFromHereTimerRef.current);
+    },
+    [],
+  );
 
   const { measuredDurationSec } = player;
   useEffect(() => {
@@ -130,12 +138,25 @@ export default function EditorScreen() {
     [setSfxOverride],
   );
 
-  const playSelectedFromHere = useCallback(() => {
-    if (selectedSfx === null) return;
-    pause();
-    seek(Math.max(0, selectedSfx.timeSec - 2));
-    play();
-  }, [pause, play, seek, selectedSfx]);
+  const playSelectedFromHere = useCallback(
+    (startSec: number, durationSec: number) => {
+      if (!Number.isFinite(startSec) || !Number.isFinite(durationSec)) return;
+
+      const liveStartSec = Math.max(0, startSec);
+      const seekTarget = Math.max(0, liveStartSec - 2);
+      const auditionLengthSec = liveStartSec - seekTarget + Math.max(0, durationSec) + 2;
+
+      if (playFromHereTimerRef.current !== null) clearTimeout(playFromHereTimerRef.current);
+      pause();
+      seek(seekTarget);
+      play();
+      playFromHereTimerRef.current = setTimeout(() => {
+        pause();
+        playFromHereTimerRef.current = null;
+      }, auditionLengthSec * 1000);
+    },
+    [pause, play, seek],
+  );
 
   if (!hasAnalysed) {
     return (
