@@ -20,6 +20,7 @@ import {
   formatSfxVolume,
   isSfxSuggestion,
   sfxCuesFor,
+  soundById,
 } from '@/lib/sfx';
 import {
   BAR_GAP,
@@ -37,6 +38,7 @@ export default function CompareScreen() {
   const statuses = useStoryStore((state) => state.statuses);
   const details = useStoryStore((state) => state.details);
   const setSfxOverride = useStoryStore((state) => state.setSfxOverride);
+  const setSoundSourceDuration = useStoryStore((state) => state.setSoundSourceDuration);
   const setStatus = useStoryStore((state) => state.setStatus);
 
   const { audioUri, narrationSec, suggestions, waveform, sfxSettings, sounds } = useStoryTimeline();
@@ -126,6 +128,14 @@ export default function CompareScreen() {
     (suggestion: Suggestion, startSec: number) => {
       setSelectedId(suggestion.id);
       setSfxOverride(suggestion.id, { startSec });
+    },
+    [setSfxOverride],
+  );
+
+  const resizeSfx = useCallback(
+    (suggestion: Suggestion, startSec: number, durationSec: number) => {
+      setSelectedId(suggestion.id);
+      setSfxOverride(suggestion.id, { startSec, durationSec });
     },
     [setSfxOverride],
   );
@@ -289,8 +299,13 @@ export default function CompareScreen() {
                   pxPerSec={Math.max(1, waveWidth) / narrationSec}
                   selected={selectedId === item.id}
                   style={{ top: 4, height: 48 }}
+                  maxDurationSec={
+                    soundById(sounds, sfxSettings[item.id]?.soundId)?.sourceDurationSec ??
+                    sfxSettings[item.id]?.durationSec
+                  }
                   onSelect={selectSfx}
                   onMove={moveSfx}
+                  onResize={resizeSfx}
                 />
               ))}
             </View>
@@ -308,12 +323,15 @@ export default function CompareScreen() {
 
         {selectedSfx !== null ? (
           <SfxTimingPanel
-            key={`${selectedSfx.id}:${sfxSettings[selectedSfx.id].startSec}`}
+            key={`${selectedSfx.id}-${sfxSettings[selectedSfx.id].startSec}`}
             suggestion={selectedSfx}
             settings={sfxSettings[selectedSfx.id]}
             sounds={sounds}
             currentPlayhead={assisted.position}
+            narrationSec={narrationSec}
             onChangeStart={(startSec) => setSfxOverride(selectedSfx.id, { startSec })}
+            onChangeDuration={(durationSec) => setSfxOverride(selectedSfx.id, { durationSec })}
+            onSourceDuration={setSoundSourceDuration}
             onUsePlayhead={() => setSfxOverride(selectedSfx.id, { startSec: assisted.position })}
             onPlayFromHere={playSelectedFromHere}
             actualPlayerAfterSeek={seekDebug.actualPosition}

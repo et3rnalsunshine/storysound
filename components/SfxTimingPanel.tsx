@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { createAudioPlayer, type AudioStatus } from 'expo-audio';
 import { Edit3, Headphones, LocateFixed, Pause, Play, Waves, X } from 'lucide-react-native';
 import {
   Button,
@@ -31,7 +32,10 @@ type SfxTimingPanelProps = {
   settings: SfxSettings;
   sounds: SoundAsset[];
   currentPlayhead: number;
+  narrationSec: number;
   onChangeStart: (startSec: number) => void;
+  onChangeDuration: (durationSec: number) => void;
+  onSourceDuration: (soundId: string, durationSec: number) => void;
   onUsePlayhead: () => void;
   onPlayFromHere: () => void;
   actualPlayerAfterSeek: number | null;
@@ -48,7 +52,10 @@ export function SfxTimingPanel({
   settings,
   sounds,
   currentPlayhead,
+  narrationSec,
   onChangeStart,
+  onChangeDuration,
+  onSourceDuration,
   onUsePlayhead,
   onPlayFromHere,
   actualPlayerAfterSeek,
@@ -66,6 +73,36 @@ export function SfxTimingPanel({
   const isPreviewing = preview.playingId === suggestion.id;
   const isPreviewLoading = preview.loadingId === suggestion.id;
   const playFromHereTarget = Math.max(0, settings.startSec - 2);
+  const endSec = settings.startSec + settings.durationSec;
+  const maximumDuration = Math.max(
+    0.5,
+    Math.min(sound?.sourceDurationSec ?? settings.durationSec, narrationSec - settings.startSec),
+  );
+
+  useEffect(() => {
+    if (sound === null || sound.sourceDurationSec !== null) return () => {};
+
+    const player = createAudioPlayer({ uri: sound.uri }, { updateInterval: 250 });
+    let captured = false;
+    const captureDuration = (status: AudioStatus) => {
+      if (captured || !status.isLoaded || status.duration <= 0) return;
+      captured = true;
+      onSourceDuration(sound.id, status.duration);
+      if (settings.durationSec > status.duration) onChangeDuration(status.duration);
+    };
+
+    captureDuration(player.currentStatus);
+    const subscription = player.addListener('playbackStatusUpdate', captureDuration);
+    return () => {
+      subscription.remove();
+      player.remove();
+    };
+  }, [onChangeDuration, onSourceDuration, settings.durationSec, sound]);
+
+  const updateDuration = (durationSec: number) => {
+    const next = Math.round(Math.max(0.5, Math.min(maximumDuration, durationSec)) * 10) / 10;
+    onChangeDuration(next);
+  };
 
   const updateStart = (startSec: number) => {
     setStartText(formatCueTime(startSec));
@@ -137,6 +174,14 @@ export function SfxTimingPanel({
             </View>
             <View>
               <Typography type="body-xs" className="text-ink-soft">
+                End:
+              </Typography>
+              <Typography type="body-sm" weight="semibold" className="text-ink">
+                {formatCueTime(endSec)}
+              </Typography>
+            </View>
+            <View>
+              <Typography type="body-xs" className="text-ink-soft">
                 Volume:
               </Typography>
               <Typography type="body-sm" weight="semibold" className="text-ink">
@@ -173,6 +218,33 @@ export function SfxTimingPanel({
           <Button.Label>+0.5 sec</Button.Label>
         </Button>
       </View>
+
+      <View className="flex-row gap-2">
+        <Button
+          className="flex-1"
+          isDisabled={settings.durationSec <= 0.5}
+          onPress={() => updateDuration(settings.durationSec - 0.5)}
+          size="sm"
+          variant="secondary"
+        >
+          <Button.Label>Duration −0.5 sec</Button.Label>
+        </Button>
+        <Button
+          className="flex-1"
+          isDisabled={settings.durationSec >= maximumDuration}
+          onPress={() => updateDuration(settings.durationSec + 0.5)}
+          size="sm"
+          variant="secondary"
+        >
+          <Button.Label>Duration +0.5 sec</Button.Label>
+        </Button>
+      </View>
+
+      {sound?.sourceDurationSec !== null && sound?.sourceDurationSec !== undefined ? (
+        <Typography className="text-muted text-xs">
+          Source audio limit: {sound.sourceDurationSec.toFixed(1)} s
+        </Typography>
+      ) : null}
 
       <TextField isInvalid={startError !== null}>
         <Label>Exact Start</Label>

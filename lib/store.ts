@@ -15,6 +15,8 @@ export type NewSound = {
   source: SoundSource;
   /** Description the sound was generated from, or `null` for uploads. */
   prompt: string | null;
+  /** Known source-file length. Uploaded files are measured when selected. */
+  sourceDurationSec?: number | null;
 };
 
 /** State of a sound-generation request for one suggestion. */
@@ -37,6 +39,7 @@ function toSoundAsset(sound: NewSound, id: string): SoundAsset {
     mimeType: sound.mimeType,
     source: sound.source,
     prompt: sound.prompt,
+    sourceDurationSec: sound.sourceDurationSec ?? null,
   };
 }
 
@@ -75,6 +78,7 @@ type StoryState = {
   resetDecisions: () => void;
   addSound: (sound: NewSound) => string;
   renameSound: (id: string, name: string) => void;
+  setSoundSourceDuration: (id: string, durationSec: number) => void;
   removeSound: (id: string) => void;
   /** Stores the sound, timing or volume the user chose for a suggestion. */
   setSfxOverride: (id: string, patch: Partial<SfxSettings>) => void;
@@ -208,6 +212,15 @@ export const useStoryStore = create<StoryState>()((set) => ({
   renameSound: (id, name) =>
     set((state) => ({
       sounds: state.sounds.map((sound) => (sound.id === id ? { ...sound, name } : sound)),
+    })),
+
+  setSoundSourceDuration: (id, durationSec) =>
+    set((state) => ({
+      sounds: state.sounds.map((sound) =>
+        sound.id === id && Number.isFinite(durationSec) && durationSec > 0
+          ? { ...sound, sourceDurationSec: durationSec }
+          : sound,
+      ),
     })),
 
   removeSound: (id) =>

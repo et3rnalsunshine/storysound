@@ -28,6 +28,8 @@ export type SoundAsset = {
   source: SoundSource;
   /** Description the sound was generated from, or `null` for uploads. */
   prompt: string | null;
+  /** Measured or requested source-file length; timeline clips may not exceed it. */
+  sourceDurationSec: number | null;
 };
 
 export type SfxSettings = {

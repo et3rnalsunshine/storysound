@@ -53,6 +53,7 @@ export function useSfxGeneration(suggestionId: string): SfxGeneration {
               mimeType: file.mimeType,
               source: 'generated',
               prompt: description,
+              sourceDurationSec: durationSec,
             },
             { ...patch, prompt: description },
           );

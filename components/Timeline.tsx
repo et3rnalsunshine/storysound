@@ -58,6 +58,8 @@ type TimelineProps = Geometry & {
   onSelectSuggestion: (suggestion: Suggestion) => void;
   onSelectSfx: (suggestion: Suggestion) => void;
   onMoveSfx: (suggestion: Suggestion, startSec: number) => void;
+  onResizeSfx: (suggestion: Suggestion, startSec: number, durationSec: number) => void;
+  sourceDurationForSfx: (suggestion: Suggestion) => number | undefined;
 };
 
 export function Timeline({
@@ -74,6 +76,8 @@ export function Timeline({
   onSelectSuggestion,
   onSelectSfx,
   onMoveSfx,
+  onResizeSfx,
+  sourceDurationForSfx,
 }: TimelineProps) {
   const scrollRef = useRef<ScrollView>(null);
   const [viewportWidth, setViewportWidth] = useState(0);
@@ -122,6 +126,8 @@ export function Timeline({
               onSeek={onSeek}
               onSelectSfx={onSelectSfx}
               onMoveSfx={onMoveSfx}
+              onResizeSfx={onResizeSfx}
+              sourceDurationForSfx={sourceDurationForSfx}
               onDragStateChange={setIsDraggingClip}
             />
             <Playhead position={position} pxPerSec={pxPerSec} />
@@ -287,6 +293,8 @@ type LanesProps = Geometry & {
   onSeek: (seconds: number) => void;
   onSelectSfx: (suggestion: Suggestion) => void;
   onMoveSfx: (suggestion: Suggestion, startSec: number) => void;
+  onResizeSfx: (suggestion: Suggestion, startSec: number, durationSec: number) => void;
+  sourceDurationForSfx: (suggestion: Suggestion) => number | undefined;
   onDragStateChange: (dragging: boolean) => void;
 };
 
@@ -301,6 +309,8 @@ function Lanes({
   onSeek,
   onSelectSfx,
   onMoveSfx,
+  onResizeSfx,
+  sourceDurationForSfx,
   onDragStateChange,
 }: LanesProps) {
   const timelineWidth = timelineSec * pxPerSec;
@@ -368,8 +378,10 @@ function Lanes({
               pxPerSec={pxPerSec}
               selected={selectedId === suggestion.id}
               style={style}
+              maxDurationSec={sourceDurationForSfx(suggestion)}
               onSelect={onSelectSfx}
               onMove={onMoveSfx}
+              onResize={onResizeSfx}
               onDragStateChange={onDragStateChange}
             />
           );

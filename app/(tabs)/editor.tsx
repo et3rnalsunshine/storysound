@@ -14,7 +14,7 @@ import { useNarrationPlayer } from '@/hooks/useNarrationPlayer';
 import { useSfxScheduler } from '@/hooks/useSfxScheduler';
 import { useStoryTimeline } from '@/hooks/useStoryTimeline';
 import { useStoryStore } from '@/lib/store';
-import { isSfxSuggestion, sfxCuesFor } from '@/lib/sfx';
+import { isSfxSuggestion, sfxCuesFor, soundById } from '@/lib/sfx';
 import { formatTime, type Suggestion } from '@/lib/story';
 import { palette } from '@/lib/theme';
 
@@ -26,6 +26,7 @@ export default function EditorScreen() {
   const details = useStoryStore((state) => state.details);
   const setNarrationDuration = useStoryStore((state) => state.setNarrationDuration);
   const setSfxOverride = useStoryStore((state) => state.setSfxOverride);
+  const setSoundSourceDuration = useStoryStore((state) => state.setSoundSourceDuration);
   const setStatus = useStoryStore((state) => state.setStatus);
 
   const {
@@ -142,6 +143,20 @@ export default function EditorScreen() {
     [setSfxOverride],
   );
 
+  const resizeSfx = useCallback(
+    (suggestion: Suggestion, startSec: number, durationSec: number) => {
+      setSelectedId(suggestion.id);
+      setSfxOverride(suggestion.id, { startSec, durationSec });
+    },
+    [setSfxOverride],
+  );
+
+  const sourceDurationForSfx = useCallback(
+    (suggestion: Suggestion) =>
+      soundById(sounds, sfxSettings[suggestion.id]?.soundId)?.sourceDurationSec ?? undefined,
+    [sfxSettings, sounds],
+  );
+
   const playSelectedFromHere = useCallback(async () => {
     if (selectedSfx === null) return;
 
@@ -229,16 +244,21 @@ export default function EditorScreen() {
           onSelectSuggestion={selectTimelineItem}
           onSelectSfx={selectSfx}
           onMoveSfx={moveSfx}
+          onResizeSfx={resizeSfx}
+          sourceDurationForSfx={sourceDurationForSfx}
         />
 
         {selectedSfx !== null ? (
           <SfxTimingPanel
-            key={`${selectedSfx.id}:${sfxSettings[selectedSfx.id].startSec}`}
+            key={`${selectedSfx.id}-${sfxSettings[selectedSfx.id].startSec}`}
             suggestion={selectedSfx}
             settings={sfxSettings[selectedSfx.id]}
             sounds={sounds}
             currentPlayhead={player.position}
+            narrationSec={narrationSec}
             onChangeStart={(startSec) => setSfxOverride(selectedSfx.id, { startSec })}
+            onChangeDuration={(durationSec) => setSfxOverride(selectedSfx.id, { durationSec })}
+            onSourceDuration={setSoundSourceDuration}
             onUsePlayhead={() => setSfxOverride(selectedSfx.id, { startSec: player.position })}
             onPlayFromHere={playSelectedFromHere}
             actualPlayerAfterSeek={seekDebug.actualPosition}
