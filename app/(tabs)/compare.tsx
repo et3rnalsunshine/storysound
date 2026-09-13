@@ -45,6 +45,10 @@ export default function CompareScreen() {
   const assisted = useNarrationPlayer(audioUri, narrationSec);
   const [waveWidth, setWaveWidth] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [seekDebug, setSeekDebug] = useState<{
+    actualPosition: number | null;
+    confirmed: boolean | null;
+  }>({ actualPosition: null, confirmed: null });
   const playFromHereTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(
@@ -101,7 +105,7 @@ export default function CompareScreen() {
   );
 
   // Only the assisted player gets the sound effects. The original stays dry.
-  const sfxPlaybackDebug = useSfxScheduler({
+  const { playbackDebug: sfxPlaybackDebug, resetTriggers: resetSfxTriggers } = useSfxScheduler({
     cues: sfxCues,
     enabled: true,
     position: assisted.position,
@@ -126,26 +130,38 @@ export default function CompareScreen() {
     [setSfxOverride],
   );
 
-  const playSelectedFromHere = useCallback(
-    (startSec: number, durationSec: number) => {
-      if (!Number.isFinite(startSec) || !Number.isFinite(durationSec)) return;
+  const playSelectedFromHere = useCallback(async () => {
+    if (!selectedId) return;
+    const liveOverride = useStoryStore.getState().sfxOverrides[selectedId];
+    const resolvedSettings = sfxSettings[selectedId];
+    if (!resolvedSettings) return;
 
-      const liveStartSec = Math.max(0, startSec);
-      const seekTarget = Math.max(0, liveStartSec - 2);
-      const auditionLengthSec = liveStartSec - seekTarget + Math.max(0, durationSec) + 2;
+    const liveStartSec = liveOverride?.startSec ?? resolvedSettings.startSec;
+    const liveDurationSec = liveOverride?.durationSec ?? resolvedSettings.durationSec;
+    const seekTarget = Math.max(0, liveStartSec - 2);
+    const auditionLengthSec = liveStartSec - seekTarget + Math.max(0, liveDurationSec) + 2;
 
-      if (playFromHereTimerRef.current !== null) clearTimeout(playFromHereTimerRef.current);
-      original.pause();
+    if (playFromHereTimerRef.current !== null) {
+      clearTimeout(playFromHereTimerRef.current);
+      playFromHereTimerRef.current = null;
+    }
+    original.pause();
+    assisted.pause();
+    setSeekDebug({ actualPosition: null, confirmed: null });
+    const seekResult = await assisted.seekAndConfirm(seekTarget);
+    setSeekDebug({
+      actualPosition: seekResult.actualPosition,
+      confirmed: seekResult.confirmed,
+    });
+    if (!seekResult.confirmed) return;
+
+    resetSfxTriggers();
+    assisted.play();
+    playFromHereTimerRef.current = setTimeout(() => {
       assisted.pause();
-      assisted.seek(seekTarget);
-      assisted.play();
-      playFromHereTimerRef.current = setTimeout(() => {
-        assisted.pause();
-        playFromHereTimerRef.current = null;
-      }, auditionLengthSec * 1000);
-    },
-    [assisted, original],
-  );
+      playFromHereTimerRef.current = null;
+    }, auditionLengthSec * 1000);
+  }, [assisted, original, resetSfxTriggers, selectedId, sfxSettings]);
 
   const seekOriginal = useCallback(
     (seconds: number) => {
@@ -300,6 +316,9 @@ export default function CompareScreen() {
             onChangeStart={(startSec) => setSfxOverride(selectedSfx.id, { startSec })}
             onUsePlayhead={() => setSfxOverride(selectedSfx.id, { startSec: assisted.position })}
             onPlayFromHere={playSelectedFromHere}
+            actualPlayerAfterSeek={seekDebug.actualPosition}
+            seekConfirmed={seekDebug.confirmed}
+            sfxTriggered={sfxPlaybackDebug[selectedSfx.id]?.triggered ?? false}
             onBeforePreview={() => {
               original.pause();
               assisted.pause();

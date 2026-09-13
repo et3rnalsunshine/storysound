@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createAudioPlayer, type AudioPlayer, type AudioStatus } from 'expo-audio';
 
 import { ensureAudioSession } from '@/lib/audioSession';
@@ -28,6 +28,12 @@ export type SfxSchedulerOptions = {
 };
 
 export type SfxPlaybackDebug = Record<string, { triggered: boolean }>;
+
+export type SfxScheduler = {
+  playbackDebug: SfxPlaybackDebug;
+  /** Stops active voices and makes every live cue available to trigger again. */
+  resetTriggers: () => void;
+};
 
 /** One player per cue, file and live timeline placement. */
 function voiceKey(cue: SfxCue): string {
@@ -87,12 +93,23 @@ export function useSfxScheduler({
   enabled,
   position,
   isPlaying,
-}: SfxSchedulerOptions): SfxPlaybackDebug {
+}: SfxSchedulerOptions): SfxScheduler {
   const voicesRef = useRef(new Map<string, Voice>());
   const firedRef = useRef(new Set<string>());
   const cueKeysRef = useRef(new Map<string, string>());
   const lastPositionRef = useRef(0);
   const [playbackDebug, setPlaybackDebug] = useState<SfxPlaybackDebug>({});
+
+  const resetTriggers = useCallback(() => {
+    for (const voice of voicesRef.current.values()) releaseVoice(voice);
+    voicesRef.current.clear();
+    firedRef.current.clear();
+    setPlaybackDebug(() => {
+      const next: SfxPlaybackDebug = {};
+      for (const cue of cues) next[cue.id] = { triggered: false };
+      return next;
+    });
+  }, [cues]);
 
   // Release players and reset trigger state for cues that were rejected,
   // retimed or repointed. The timing-aware key makes edits effective at once.
@@ -267,5 +284,5 @@ export function useSfxScheduler({
     }
   }, [cues, enabled, isPlaying, position]);
 
-  return playbackDebug;
+  return { playbackDebug, resetTriggers };
 }

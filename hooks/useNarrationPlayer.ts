@@ -9,6 +9,18 @@ import { setPlayerVolume } from '@/lib/audioPlayback';
 const UPDATE_INTERVAL_MS = 50;
 /** How long a requested position is trusted before status takes over again. */
 const SEEK_SETTLE_MS = 400;
+const SEEK_CONFIRM_TIMEOUT_MS = 1_500;
+const SEEK_CONFIRM_INTERVAL_MS = 25;
+const SEEK_CONFIRM_TOLERANCE_SEC = 0.12;
+
+function wait(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+export type NarrationSeekResult = {
+  actualPosition: number;
+  confirmed: boolean;
+};
 
 export type NarrationPlayer = {
   /** Current position in seconds. */
@@ -27,6 +39,8 @@ export type NarrationPlayer = {
   play: () => void;
   pause: () => void;
   seek: (seconds: number) => void;
+  /** Pauses must be handled by the caller before awaiting this confirmed seek. */
+  seekAndConfirm: (seconds: number) => Promise<NarrationSeekResult>;
   reset: () => void;
   /** 0..1. Used to hear accepted mix suggestions. */
   setVolume: (volume: number) => void;
@@ -112,6 +126,39 @@ export function useNarrationPlayer(
     [fallbackDurationSec, isReal, player, seekSimulated],
   );
 
+  const seekAndConfirm = useCallback(
+    async (seconds: number): Promise<NarrationSeekResult> => {
+      const limit = player.duration > 0 ? player.duration : fallbackDurationSec;
+      const clamped = Math.max(0, Math.min(limit, Number.isFinite(seconds) ? seconds : 0));
+
+      if (!isReal) {
+        seekSimulated(clamped);
+        return { actualPosition: clamped, confirmed: true };
+      }
+
+      setRequestedPosition(clamped);
+      await player.seekTo(clamped);
+
+      const deadline = Date.now() + SEEK_CONFIRM_TIMEOUT_MS;
+      let actualPosition = player.currentTime;
+      while (
+        (!Number.isFinite(actualPosition) ||
+          Math.abs(actualPosition - clamped) > SEEK_CONFIRM_TOLERANCE_SEC) &&
+        Date.now() < deadline
+      ) {
+        await wait(SEEK_CONFIRM_INTERVAL_MS);
+        actualPosition = player.currentTime;
+      }
+
+      const finitePosition = Number.isFinite(actualPosition) ? actualPosition : 0;
+      return {
+        actualPosition: finitePosition,
+        confirmed: Math.abs(finitePosition - clamped) <= SEEK_CONFIRM_TOLERANCE_SEC,
+      };
+    },
+    [fallbackDurationSec, isReal, player, seekSimulated],
+  );
+
   const reset = useCallback(() => {
     if (!isReal) {
       resetSimulated();
@@ -142,6 +189,7 @@ export function useNarrationPlayer(
     play,
     pause,
     seek,
+    seekAndConfirm,
     reset,
     setVolume,
   };

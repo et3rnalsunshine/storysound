@@ -33,7 +33,10 @@ type SfxTimingPanelProps = {
   currentPlayhead: number;
   onChangeStart: (startSec: number) => void;
   onUsePlayhead: () => void;
-  onPlayFromHere: (startSec: number, durationSec: number) => void;
+  onPlayFromHere: () => void;
+  actualPlayerAfterSeek: number | null;
+  seekConfirmed: boolean | null;
+  sfxTriggered: boolean;
   onEdit: () => void;
   onReject: () => void;
   onBeforePreview?: () => void;
@@ -48,6 +51,9 @@ export function SfxTimingPanel({
   onChangeStart,
   onUsePlayhead,
   onPlayFromHere,
+  actualPlayerAfterSeek,
+  seekConfirmed,
+  sfxTriggered,
   onEdit,
   onReject,
   onBeforePreview,
@@ -199,10 +205,23 @@ export function SfxTimingPanel({
 
       <View className="bg-canvas border-border gap-1 rounded-xl border px-3 py-2">
         <Typography type="body-xs" className="text-ink-soft">
-          Current selected SFX startSec: {settings.startSec.toFixed(1)}
+          Selected SFX: {displayName}
         </Typography>
         <Typography type="body-xs" className="text-ink-soft">
-          Play-from-here seek target: {playFromHereTarget.toFixed(1)}
+          Live startSec: {settings.startSec.toFixed(1)}
+        </Typography>
+        <Typography type="body-xs" className="text-ink-soft">
+          Play-from-here target: {playFromHereTarget.toFixed(1)}
+        </Typography>
+        <Typography type="body-xs" className="text-ink-soft">
+          Actual player after seek:{' '}
+          {actualPlayerAfterSeek === null ? '—' : actualPlayerAfterSeek.toFixed(1)}
+        </Typography>
+        <Typography type="body-xs" className="text-ink-soft">
+          Seek confirmed: {seekConfirmed === null ? '—' : seekConfirmed ? 'Yes' : 'No'}
+        </Typography>
+        <Typography type="body-xs" className="text-ink-soft">
+          SFX triggered: {sfxTriggered ? 'Yes' : 'No'}
         </Typography>
       </View>
 
@@ -211,7 +230,7 @@ export function SfxTimingPanel({
           <LocateFixed size={15} color={palette.ink} />
           <Button.Label>Use current playhead</Button.Label>
         </Button>
-        <Button size="sm" onPress={() => onPlayFromHere(settings.startSec, settings.durationSec)}>
+        <Button size="sm" onPress={onPlayFromHere}>
           <Play size={15} color={palette.paper} fill={palette.paper} />
           <Button.Label>Play from here</Button.Label>
         </Button>

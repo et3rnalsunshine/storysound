@@ -42,6 +42,10 @@ export default function EditorScreen() {
 
   const player = useNarrationPlayer(audioUri, narrationSec);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [seekDebug, setSeekDebug] = useState<{
+    actualPosition: number | null;
+    confirmed: boolean | null;
+  }>({ actualPosition: null, confirmed: null });
   const playFromHereTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(
@@ -76,7 +80,7 @@ export default function EditorScreen() {
     [accepted, sfxSettings, sounds],
   );
 
-  useSfxScheduler({
+  const { playbackDebug: sfxPlaybackDebug, resetTriggers } = useSfxScheduler({
     cues: sfxCues,
     enabled: sfxCues.length > 0,
     position: player.position,
@@ -99,7 +103,7 @@ export default function EditorScreen() {
     [selectedId, sfxSettings, statuses, suggestions],
   );
 
-  const { pause, play, seek } = player;
+  const { pause, play, seek, seekAndConfirm } = player;
   const openSuggestion = useCallback(
     (suggestion: Suggestion) => {
       pause();
@@ -138,25 +142,35 @@ export default function EditorScreen() {
     [setSfxOverride],
   );
 
-  const playSelectedFromHere = useCallback(
-    (startSec: number, durationSec: number) => {
-      if (!Number.isFinite(startSec) || !Number.isFinite(durationSec)) return;
+  const playSelectedFromHere = useCallback(async () => {
+    if (selectedSfx === null) return;
 
-      const liveStartSec = Math.max(0, startSec);
-      const seekTarget = Math.max(0, liveStartSec - 2);
-      const auditionLengthSec = liveStartSec - seekTarget + Math.max(0, durationSec) + 2;
+    const currentSettings = sfxSettings[selectedSfx.id];
+    const liveOverride = useStoryStore.getState().sfxOverrides[selectedSfx.id];
+    const liveStartSec = liveOverride?.startSec ?? currentSettings.startSec;
+    const liveDurationSec = liveOverride?.durationSec ?? currentSettings.durationSec;
+    if (!Number.isFinite(liveStartSec) || !Number.isFinite(liveDurationSec)) return;
 
-      if (playFromHereTimerRef.current !== null) clearTimeout(playFromHereTimerRef.current);
+    const seekTarget = Math.max(0, liveStartSec - 2);
+    const auditionLengthSec = liveStartSec - seekTarget + Math.max(0, liveDurationSec) + 2;
+
+    if (playFromHereTimerRef.current !== null) clearTimeout(playFromHereTimerRef.current);
+    pause();
+    setSeekDebug({ actualPosition: null, confirmed: null });
+    const seekResult = await seekAndConfirm(seekTarget);
+    setSeekDebug({
+      actualPosition: seekResult.actualPosition,
+      confirmed: seekResult.confirmed,
+    });
+    if (!seekResult.confirmed) return;
+
+    resetTriggers();
+    play();
+    playFromHereTimerRef.current = setTimeout(() => {
       pause();
-      seek(seekTarget);
-      play();
-      playFromHereTimerRef.current = setTimeout(() => {
-        pause();
-        playFromHereTimerRef.current = null;
-      }, auditionLengthSec * 1000);
-    },
-    [pause, play, seek],
-  );
+      playFromHereTimerRef.current = null;
+    }, auditionLengthSec * 1000);
+  }, [pause, play, resetTriggers, seekAndConfirm, selectedSfx, sfxSettings]);
 
   if (!hasAnalysed) {
     return (
@@ -227,6 +241,9 @@ export default function EditorScreen() {
             onChangeStart={(startSec) => setSfxOverride(selectedSfx.id, { startSec })}
             onUsePlayhead={() => setSfxOverride(selectedSfx.id, { startSec: player.position })}
             onPlayFromHere={playSelectedFromHere}
+            actualPlayerAfterSeek={seekDebug.actualPosition}
+            seekConfirmed={seekDebug.confirmed}
+            sfxTriggered={sfxPlaybackDebug[selectedSfx.id]?.triggered ?? false}
             onBeforePreview={player.pause}
             onEdit={() => openSuggestion(selectedSfx)}
             onReject={() => {
