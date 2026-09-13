@@ -92,7 +92,7 @@ export default function CompareScreen() {
   );
 
   // Only the assisted player gets the sound effects. The original stays dry.
-  useSfxScheduler({
+  const sfxPlaybackDebug = useSfxScheduler({
     cues: sfxCues,
     enabled: true,
     position: assisted.position,
@@ -340,6 +340,15 @@ export default function CompareScreen() {
                           {cue.source === 'generated' ? 'AI-generated' : 'your file'}) · plays at{' '}
                           {formatCueTime(cue.startSec)} for {formatSfxDuration(cue.durationSec)} at{' '}
                           {formatSfxVolume(cue.volume)}
+                        </Typography>
+                      ) : null}
+                      {isSfxSuggestion(item) ? (
+                        <Typography type="body-xs" className="text-ink-soft">
+                          Debug · {cue?.soundName ?? item.clip.label} · start{' '}
+                          {formatCueTime(sfxSettings[item.id]?.startSec ?? item.timeSec)} · file URI
+                          exists: {cue !== undefined && cue.uri.trim().length > 0 ? 'yes' : 'no'} ·
+                          accepted: {statuses[item.id] === 'accepted' ? 'yes' : 'no'} · triggered:
+                          {sfxPlaybackDebug[item.id]?.triggered ? ' yes' : ' no'}
                         </Typography>
                       ) : null}
                       {needsSound ? (

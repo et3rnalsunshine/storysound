@@ -1,12 +1,10 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createAudioPlayer, type AudioPlayer, type AudioStatus } from 'expo-audio';
 
 import { ensureAudioSession } from '@/lib/audioSession';
 import { setPlayerVolume } from '@/lib/audioPlayback';
 import type { SfxCue } from '@/lib/sfx';
 
-/** How close to a cue's start the playhead must be for the effect to fire. */
-const TRIGGER_WINDOW_SEC = 0.4;
 /** Backwards jump that counts as scrubbing, making the cues available again. */
 const REWIND_TOLERANCE_SEC = 0.25;
 const LOAD_TIMEOUT_MS = 10_000;
@@ -29,9 +27,11 @@ export type SfxSchedulerOptions = {
   isPlaying: boolean;
 };
 
-/** One player per cue and file, so the same sound can be used twice. */
+export type SfxPlaybackDebug = Record<string, { triggered: boolean }>;
+
+/** One player per cue, file and live timeline placement. */
 function voiceKey(cue: SfxCue): string {
-  return `${cue.id}::${cue.uri}`;
+  return `${cue.id}::${cue.uri}::${cue.startSec}::${cue.durationSec}`;
 }
 
 function releaseVoice(voice: Voice): void {
@@ -82,12 +82,20 @@ function waitForStatus(
  * timestamp and stopped when its chosen length is over. Volume follows the
  * intensity the user picked.
  */
-export function useSfxScheduler({ cues, enabled, position, isPlaying }: SfxSchedulerOptions): void {
+export function useSfxScheduler({
+  cues,
+  enabled,
+  position,
+  isPlaying,
+}: SfxSchedulerOptions): SfxPlaybackDebug {
   const voicesRef = useRef(new Map<string, Voice>());
   const firedRef = useRef(new Set<string>());
+  const cueKeysRef = useRef(new Map<string, string>());
   const lastPositionRef = useRef(0);
+  const [playbackDebug, setPlaybackDebug] = useState<SfxPlaybackDebug>({});
 
-  // Release players for cues that were rejected, retimed or repointed.
+  // Release players and reset trigger state for cues that were rejected,
+  // retimed or repointed. The timing-aware key makes edits effective at once.
   useEffect(() => {
     const live = new Set(cues.map(voiceKey));
     for (const [key, voice] of voicesRef.current) {
@@ -96,6 +104,20 @@ export function useSfxScheduler({ cues, enabled, position, isPlaying }: SfxSched
       voicesRef.current.delete(key);
       firedRef.current.delete(key);
     }
+
+    const nextKeys = new Map(cues.map((cue) => [cue.id, voiceKey(cue)]));
+    setPlaybackDebug((current) => {
+      const next: SfxPlaybackDebug = {};
+      for (const cue of cues) {
+        next[cue.id] = {
+          triggered:
+            cueKeysRef.current.get(cue.id) === nextKeys.get(cue.id) &&
+            (current[cue.id]?.triggered ?? false),
+        };
+      }
+      return next;
+    });
+    cueKeysRef.current = nextKeys;
   }, [cues]);
 
   useEffect(() => {
@@ -119,15 +141,25 @@ export function useSfxScheduler({ cues, enabled, position, isPlaying }: SfxSched
       voices.clear();
     };
 
+    const resetTriggerDebug = () => {
+      setPlaybackDebug(() => {
+        const next: SfxPlaybackDebug = {};
+        for (const cue of cues) next[cue.id] = { triggered: false };
+        return next;
+      });
+    };
+
     if (!enabled) {
       releaseAll();
       firedRef.current.clear();
+      resetTriggerDebug();
       return;
     }
 
     if (position < previous - REWIND_TOLERANCE_SEC) {
       releaseAll();
       firedRef.current.clear();
+      resetTriggerDebug();
     }
 
     if (!isPlaying) {
@@ -186,7 +218,6 @@ export function useSfxScheduler({ cues, enabled, position, isPlaying }: SfxSched
       // The story timestamp only decides when to create the SFX player. A new
       // player begins at file time 0; the narration timestamp is never a seek.
       if (firedRef.current.has(key)) continue;
-      if (position > cue.startSec + TRIGGER_WINDOW_SEC) continue;
 
       ensureAudioSession();
       const player = createAudioPlayer(
@@ -216,6 +247,10 @@ export function useSfxScheduler({ cues, enabled, position, isPlaying }: SfxSched
           if (voices.get(key) !== nextVoice || nextVoice.state !== 'loading') return;
 
           firedRef.current.add(key);
+          setPlaybackDebug((current) => ({
+            ...current,
+            [cue.id]: { triggered: true },
+          }));
           if (started.didJustFinish) {
             releaseVoice(nextVoice);
             voices.delete(key);
@@ -231,4 +266,6 @@ export function useSfxScheduler({ cues, enabled, position, isPlaying }: SfxSched
       })();
     }
   }, [cues, enabled, isPlaying, position]);
+
+  return playbackDebug;
 }
