@@ -1,9 +1,11 @@
 import { useState } from 'react';
+import { Waves } from 'lucide-react-native';
 import { PanResponder, type StyleProp, type ViewStyle, View } from 'react-native';
 import { Typography } from 'heroui-native';
 
 import { formatCueTime } from '@/lib/sfx';
 import type { Suggestion } from '@/lib/story';
+import { palette } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 
 type DraggableSfxClipProps = {
@@ -80,9 +82,17 @@ export function DraggableSfxClip({
       style={[{ left: displayedStart * pxPerSec, width }, style]}
       onTouchEnd={() => onSelect(suggestion)}
     >
-      <Typography type="body-xs" weight="semibold" className="text-panel" numberOfLines={1}>
-        {suggestion.clip.label}
-      </Typography>
+      <View className="flex-row items-center gap-1">
+        <Waves size={11} color={palette.paper} />
+        <Typography
+          type="body-xs"
+          weight="semibold"
+          className="text-panel flex-1"
+          numberOfLines={1}
+        >
+          {suggestion.clip.label}
+        </Typography>
+      </View>
       <Typography type="body-xs" className="text-panel/90" style={{ fontSize: 10 }}>
         {formatCueTime(displayedStart)}
       </Typography>

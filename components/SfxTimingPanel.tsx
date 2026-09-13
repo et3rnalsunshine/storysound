@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Edit3, Headphones, LocateFixed, Pause, Play } from 'lucide-react-native';
+import { Edit3, Headphones, LocateFixed, Pause, Play, Waves, X } from 'lucide-react-native';
 import {
   Button,
   Description,
@@ -19,6 +19,7 @@ import {
   formatSfxVolume,
   parseCueTime,
   soundById,
+  soundDisplayName,
   type SfxSettings,
   type SoundAsset,
 } from '@/lib/sfx';
@@ -34,6 +35,7 @@ type SfxTimingPanelProps = {
   onUsePlayhead: () => void;
   onPlayFromHere: () => void;
   onEdit: () => void;
+  onReject: () => void;
   onBeforePreview?: () => void;
 };
 
@@ -47,12 +49,14 @@ export function SfxTimingPanel({
   onUsePlayhead,
   onPlayFromHere,
   onEdit,
+  onReject,
   onBeforePreview,
 }: SfxTimingPanelProps) {
   const [startText, setStartText] = useState(formatCueTime(settings.startSec));
   const [startError, setStartError] = useState<string | null>(null);
   const preview = useSfxPreview();
   const sound = soundById(sounds, settings.soundId);
+  const displayName = soundDisplayName(sound, suggestion.clip.label);
   const isPreviewing = preview.playingId === suggestion.id;
   const isPreviewLoading = preview.loadingId === suggestion.id;
 
@@ -91,23 +95,57 @@ export function SfxTimingPanel({
 
   return (
     <Surface variant="secondary" className="border-border gap-4 rounded-2xl border p-4">
-      <View className="flex-row items-start justify-between gap-3">
-        <View className="flex-1 gap-1">
+      <View className="gap-3">
+        <View className="flex-row items-center gap-2">
+          <Waves size={16} color={palette.sfx} />
           <Typography type="body-xs" className="text-sfx tracking-widest uppercase">
             Selected sound effect
           </Typography>
-          <Typography type="body" weight="semibold" className="text-ink">
-            {suggestion.clip.label}
-          </Typography>
-          <Typography type="body-xs" className="text-ink-soft">
-            Starts {formatCueTime(settings.startSec)} · {formatSfxDuration(settings.durationSec)} ·{' '}
-            {formatSfxVolume(settings.volume)} volume
-          </Typography>
         </View>
-        <Button size="sm" variant="tertiary" onPress={onEdit}>
-          <Edit3 size={14} color={palette.ink} />
-          <Button.Label>Edit</Button.Label>
-        </Button>
+        <View className="gap-2">
+          <View>
+            <Typography type="body-xs" className="text-ink-soft">
+              Sound effect:
+            </Typography>
+            <Typography type="body" weight="semibold" className="text-ink">
+              {displayName}
+            </Typography>
+          </View>
+          <View className="flex-row flex-wrap gap-x-6 gap-y-2">
+            <View>
+              <Typography type="body-xs" className="text-ink-soft">
+                Start:
+              </Typography>
+              <Typography type="body-sm" weight="semibold" className="text-ink">
+                {formatCueTime(settings.startSec)}
+              </Typography>
+            </View>
+            <View>
+              <Typography type="body-xs" className="text-ink-soft">
+                Duration:
+              </Typography>
+              <Typography type="body-sm" weight="semibold" className="text-ink">
+                {formatSfxDuration(settings.durationSec)}
+              </Typography>
+            </View>
+            <View>
+              <Typography type="body-xs" className="text-ink-soft">
+                Volume:
+              </Typography>
+              <Typography type="body-sm" weight="semibold" className="text-ink">
+                {formatSfxVolume(settings.volume)}
+              </Typography>
+            </View>
+            <View>
+              <Typography type="body-xs" className="text-ink-soft">
+                Status:
+              </Typography>
+              <Typography type="body-sm" weight="semibold" className="text-success">
+                Accepted
+              </Typography>
+            </View>
+          </View>
+        </View>
       </View>
 
       <View className="flex-row gap-2">
@@ -147,6 +185,17 @@ export function SfxTimingPanel({
         )}
       </TextField>
 
+      {sound?.prompt !== null && sound?.prompt !== undefined ? (
+        <View className="bg-canvas gap-1 rounded-xl p-3">
+          <Typography type="body-xs" className="text-ink-soft">
+            Full generation prompt
+          </Typography>
+          <Typography type="body-sm" className="text-ink">
+            {sound.prompt}
+          </Typography>
+        </View>
+      ) : null}
+
       <View className="flex-row flex-wrap gap-2">
         <Button size="sm" variant="secondary" onPress={onUsePlayhead}>
           <LocateFixed size={15} color={palette.ink} />
@@ -165,6 +214,14 @@ export function SfxTimingPanel({
           <Button.Label>
             {isPreviewLoading ? 'Loading…' : isPreviewing ? 'Stop preview' : 'Preview'}
           </Button.Label>
+        </Button>
+        <Button size="sm" variant="tertiary" onPress={onEdit}>
+          <Edit3 size={14} color={palette.ink} />
+          <Button.Label>Edit</Button.Label>
+        </Button>
+        <Button size="sm" variant="tertiary" onPress={onReject}>
+          <X size={15} color={palette.inkSoft} />
+          <Button.Label>Reject</Button.Label>
         </Button>
       </View>
 

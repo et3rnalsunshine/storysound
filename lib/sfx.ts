@@ -83,6 +83,20 @@ export function soundNameFromPrompt(prompt: string): string {
   return clean.charAt(0).toUpperCase() + clean.slice(1);
 }
 
+/** Short, stable label for a sound asset. The full generation prompt remains on the asset. */
+export function soundDisplayName(sound: SoundAsset | null, fallback: string): string {
+  if (sound === null) return fallback;
+  if (sound.source === 'upload' || sound.prompt === null) return sound.name;
+
+  const prompt = sound.prompt.toLowerCase();
+  if (/water|drip|drop/.test(prompt) && /drip|drop/.test(prompt)) return 'Water drips';
+  if (/tornado/.test(prompt)) return 'Tornado';
+  if (/crash|clatter|smash|objects? falling/.test(prompt)) return 'Objects crashing';
+  if (/wind/.test(prompt) && /ris|build|form|grow|intens/.test(prompt)) return 'Rising wind';
+
+  return sound.name.length <= 32 ? sound.name : soundNameFromPrompt(sound.prompt);
+}
+
 function round1(value: number): number {
   return Math.round(value * 10) / 10;
 }
@@ -194,7 +208,7 @@ export function applySfxSettings(
         ...suggestion.clip,
         startSec: settings.startSec,
         endSec: round1(settings.startSec + settings.durationSec),
-        label: sound === null ? suggestion.clip.label : sound.name,
+        label: soundDisplayName(sound, suggestion.clip.label),
       },
     };
   });
@@ -217,7 +231,7 @@ export function sfxCuesFor(
     cues.push({
       id: suggestion.id,
       soundId: sound.id,
-      soundName: sound.name,
+      soundName: soundDisplayName(sound, suggestion.clip.label),
       uri: sound.uri,
       source: sound.source,
       startSec: settings.startSec,

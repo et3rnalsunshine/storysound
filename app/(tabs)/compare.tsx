@@ -37,6 +37,7 @@ export default function CompareScreen() {
   const statuses = useStoryStore((state) => state.statuses);
   const details = useStoryStore((state) => state.details);
   const setSfxOverride = useStoryStore((state) => state.setSfxOverride);
+  const setStatus = useStoryStore((state) => state.setStatus);
 
   const { audioUri, narrationSec, suggestions, waveform, sfxSettings, sounds } = useStoryTimeline();
 
@@ -287,6 +288,12 @@ export default function CompareScreen() {
               assisted.pause();
               router.push({ pathname: '/suggestion/[id]', params: { id: selectedSfx.id } });
             }}
+            onReject={() => {
+              original.pause();
+              assisted.pause();
+              setStatus(selectedSfx.id, 'rejected');
+              setSelectedId(null);
+            }}
           />
         ) : null}
 
@@ -307,6 +314,10 @@ export default function CompareScreen() {
               {accepted.map((item) => {
                 const cue = sfxCues.find((entry) => entry.id === item.id);
                 const needsSound = isSfxSuggestion(item) && cue === undefined;
+                const effectName = cue?.soundName ?? item.clip.label;
+                const effectStart = sfxSettings[item.id]?.startSec ?? item.timeSec;
+                const effectDuration =
+                  sfxSettings[item.id]?.durationSec ?? item.clip.endSec - item.clip.startSec;
 
                 return (
                   <Pressable
@@ -315,7 +326,7 @@ export default function CompareScreen() {
                     accessibilityRole={isSfxSuggestion(item) ? 'button' : undefined}
                     accessibilityLabel={
                       isSfxSuggestion(item)
-                        ? `${cue?.soundName ?? item.clip.label}, ${formatCueTime(item.timeSec)}`
+                        ? `${effectName}, ${formatCueTime(effectStart)}, ${formatSfxDuration(effectDuration)}`
                         : undefined
                     }
                     className="flex-row gap-3 rounded-xl"
@@ -328,7 +339,7 @@ export default function CompareScreen() {
                     <View className="flex-1 gap-0.5">
                       <Typography type="body-sm" weight="semibold" className="text-ink">
                         {isSfxSuggestion(item)
-                          ? `${cue?.soundName ?? item.clip.label} · ${formatCueTime(item.timeSec)}`
+                          ? `${effectName} · ${formatCueTime(effectStart)} · ${formatSfxDuration(effectDuration)}`
                           : `${formatTime(item.timeSec)} · ${TRACK_NAME[item.clip.track]}`}
                       </Typography>
                       <Typography type="body-sm" className="text-ink-soft">

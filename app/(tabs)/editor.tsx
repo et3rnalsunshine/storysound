@@ -26,6 +26,7 @@ export default function EditorScreen() {
   const details = useStoryStore((state) => state.details);
   const setNarrationDuration = useStoryStore((state) => state.setNarrationDuration);
   const setSfxOverride = useStoryStore((state) => state.setSfxOverride);
+  const setStatus = useStoryStore((state) => state.setStatus);
 
   const {
     audioUri,
@@ -207,6 +208,11 @@ export default function EditorScreen() {
             onPlayFromHere={playSelectedFromHere}
             onBeforePreview={player.pause}
             onEdit={() => openSuggestion(selectedSfx)}
+            onReject={() => {
+              player.pause();
+              setStatus(selectedSfx.id, 'rejected');
+              setSelectedId(null);
+            }}
           />
         ) : null}
 
