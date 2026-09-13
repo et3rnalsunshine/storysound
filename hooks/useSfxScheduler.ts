@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { createAudioPlayer, type AudioPlayer } from 'expo-audio';
+import { createAudioPlayer, type AudioPlayer, type AudioStatus } from 'expo-audio';
 
 import { ensureAudioSession } from '@/lib/audioSession';
 import { setPlayerVolume } from '@/lib/audioPlayback';
@@ -9,8 +9,10 @@ import type { SfxCue } from '@/lib/sfx';
 const TRIGGER_WINDOW_SEC = 0.4;
 /** Backwards jump that counts as scrubbing, making the cues available again. */
 const REWIND_TOLERANCE_SEC = 0.25;
+const LOAD_TIMEOUT_MS = 10_000;
+const PLAY_TIMEOUT_MS = 3_000;
 
-type VoiceState = 'idle' | 'sounding' | 'held';
+type VoiceState = 'loading' | 'sounding' | 'held' | 'idle';
 
 type Voice = {
   player: AudioPlayer;
@@ -32,9 +34,9 @@ function voiceKey(cue: SfxCue): string {
   return `${cue.id}::${cue.uri}`;
 }
 
-function stopVoice(voice: Voice): void {
+function releaseVoice(voice: Voice): void {
   voice.player.pause();
-  void voice.player.seekTo(0).catch(() => undefined);
+  voice.player.remove();
   voice.state = 'idle';
 }
 
@@ -42,6 +44,34 @@ function holdVoice(voice: Voice): void {
   if (voice.state !== 'sounding') return;
   voice.player.pause();
   voice.state = 'held';
+}
+
+function waitForStatus(
+  player: AudioPlayer,
+  predicate: (status: AudioStatus) => boolean,
+  timeoutMs: number,
+): Promise<AudioStatus> {
+  const initial = player.currentStatus;
+  if (initial.error !== null) return Promise.reject(new Error(initial.error));
+  if (predicate(initial)) return Promise.resolve(initial);
+
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      subscription.remove();
+      reject(new Error('Sound effect playback timed out.'));
+    }, timeoutMs);
+    const subscription = player.addListener('playbackStatusUpdate', (status) => {
+      if (status.error !== null) {
+        clearTimeout(timer);
+        subscription.remove();
+        reject(new Error(status.error));
+      } else if (predicate(status)) {
+        clearTimeout(timer);
+        subscription.remove();
+        resolve(status);
+      }
+    });
+  });
 }
 
 /**
@@ -62,8 +92,7 @@ export function useSfxScheduler({ cues, enabled, position, isPlaying }: SfxSched
     const live = new Set(cues.map(voiceKey));
     for (const [key, voice] of voicesRef.current) {
       if (live.has(key)) continue;
-      stopVoice(voice);
-      voice.player.remove();
+      releaseVoice(voice);
       voicesRef.current.delete(key);
       firedRef.current.delete(key);
     }
@@ -85,58 +114,121 @@ export function useSfxScheduler({ cues, enabled, position, isPlaying }: SfxSched
     const previous = lastPositionRef.current;
     lastPositionRef.current = position;
 
+    const releaseAll = () => {
+      for (const voice of voices.values()) releaseVoice(voice);
+      voices.clear();
+    };
+
     if (!enabled) {
-      for (const voice of voices.values()) stopVoice(voice);
+      releaseAll();
       firedRef.current.clear();
       return;
     }
 
     if (position < previous - REWIND_TOLERANCE_SEC) {
-      for (const voice of voices.values()) stopVoice(voice);
+      releaseAll();
       firedRef.current.clear();
     }
 
     if (!isPlaying) {
-      for (const voice of voices.values()) holdVoice(voice);
+      for (const [key, voice] of voices) {
+        if (voice.state === 'loading') {
+          releaseVoice(voice);
+          voices.delete(key);
+        } else {
+          holdVoice(voice);
+        }
+      }
       return;
+    }
+
+    const activeKeys = new Set(cues.map(voiceKey));
+    for (const [key, voice] of voices) {
+      if (activeKeys.has(key)) continue;
+      releaseVoice(voice);
+      voices.delete(key);
     }
 
     for (const cue of cues) {
       const key = voiceKey(cue);
-      const endSec = cue.startSec + cue.durationSec;
       const voice = voices.get(key);
-      const isInsideCue = position >= cue.startSec && position < endSec;
+      const cueIsFinite =
+        Number.isFinite(cue.startSec) &&
+        Number.isFinite(cue.durationSec) &&
+        cue.startSec >= 0 &&
+        cue.durationSec > 0;
+      const endSec = cue.startSec + cue.durationSec;
+      const isInsideCue =
+        cueIsFinite && Number.isFinite(position) && position >= cue.startSec && position < endSec;
 
       if (!isInsideCue) {
-        if (voice !== undefined && voice.state !== 'idle') stopVoice(voice);
+        if (voice !== undefined) {
+          releaseVoice(voice);
+          voices.delete(key);
+        }
         continue;
       }
 
-      if (voice !== undefined && voice.state === 'sounding') {
+      if (voice?.state === 'loading') continue;
+
+      if (voice?.state === 'sounding') {
         setPlayerVolume(voice.player, cue.volume);
         continue;
       }
 
-      if (voice !== undefined && voice.state === 'held') {
+      if (voice?.state === 'held') {
         setPlayerVolume(voice.player, cue.volume);
         voice.player.play();
         voice.state = 'sounding';
         continue;
       }
 
-      // Only start near the cue's timestamp, so seeking into the middle of a
-      // sound effect does not fire it late.
+      // The story timestamp only decides when to create the SFX player. A new
+      // player begins at file time 0; the narration timestamp is never a seek.
       if (firedRef.current.has(key)) continue;
       if (position > cue.startSec + TRIGGER_WINDOW_SEC) continue;
 
       ensureAudioSession();
-      const player = voice?.player ?? createAudioPlayer({ uri: cue.uri });
+      const player = createAudioPlayer(
+        { uri: cue.uri },
+        { keepAudioSessionActive: true, updateInterval: 100 },
+      );
+      const nextVoice: Voice = { player, state: 'loading' };
+      voices.set(key, nextVoice);
       player.loop = false;
       setPlayerVolume(player, cue.volume);
-      if (player.currentTime > 0.05) void player.seekTo(0).catch(() => undefined);
-      player.play();
-      voices.set(key, { player, state: 'sounding' });
-      firedRef.current.add(key);
+
+      void (async () => {
+        try {
+          await waitForStatus(
+            player,
+            (status) => status.isLoaded && Number.isFinite(status.duration) && status.duration > 0,
+            LOAD_TIMEOUT_MS,
+          );
+          if (voices.get(key) !== nextVoice || nextVoice.state !== 'loading') return;
+
+          player.play();
+          const started = await waitForStatus(
+            player,
+            (status) => status.playing || status.didJustFinish,
+            PLAY_TIMEOUT_MS,
+          );
+          if (voices.get(key) !== nextVoice || nextVoice.state !== 'loading') return;
+
+          firedRef.current.add(key);
+          if (started.didJustFinish) {
+            releaseVoice(nextVoice);
+            voices.delete(key);
+          } else {
+            nextVoice.state = 'sounding';
+          }
+        } catch {
+          if (voices.get(key) !== nextVoice) return;
+          releaseVoice(nextVoice);
+          voices.delete(key);
+          firedRef.current.delete(key);
+        }
+      })();
     }
   }, [cues, enabled, isPlaying, position]);
 }

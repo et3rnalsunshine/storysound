@@ -102,11 +102,7 @@ export function useSfxPreview(): SfxPreview {
   const stop = useCallback(() => {
     operationRef.current += 1;
     clearTimer();
-    const player = playerRef.current;
-    if (player !== null) {
-      player.pause();
-      void player.seekTo(0).catch(() => undefined);
-    }
+    playerRef.current?.pause();
     releasePlayer();
     setLoadingId(null);
     setPlayingId(null);
@@ -143,9 +139,9 @@ export function useSfxPreview(): SfxPreview {
           player.loop = false;
           setPlayerVolume(player, request.volume);
 
-          await waitForStatus(
+          const loadedStatus = await waitForStatus(
             player,
-            (status) => status.isLoaded && status.duration > 0,
+            (status) => status.isLoaded && Number.isFinite(status.duration) && status.duration > 0,
             LOAD_TIMEOUT_MS,
             'The generated audio did not finish loading.',
           );
@@ -157,42 +153,61 @@ export function useSfxPreview(): SfxPreview {
             mimeType: request.mimeType ?? null,
             loadState: 'loaded',
           });
-          if (player.currentTime > 0.05) await player.seekTo(0);
+
+          // A story cue timestamp decides when synchronized playback begins.
+          // Preview uses this newly-created player at file time 0 and never
+          // seeks with the story timestamp (or any untrusted value).
           player.play();
 
-          await waitForStatus(
+          const startedStatus = await waitForStatus(
             player,
             (status) => status.playing || status.didJustFinish,
             PLAY_TIMEOUT_MS,
             'The audio loaded, but playback did not start.',
           );
           if (operationRef.current !== operation) return;
+          if (startedStatus.didJustFinish) {
+            setLoadingId(null);
+            releasePlayer();
+            return;
+          }
 
           statusSubscriptionRef.current = player.addListener('playbackStatusUpdate', (status) => {
-            if (status.error === null || operationRef.current !== operation) return;
-            clearTimer();
-            setError(playbackMessage(status.error));
-            setDebug({
-              id: request.id,
-              byteLength: request.byteLength ?? null,
-              mimeType: request.mimeType ?? null,
-              loadState: 'failed',
-            });
-            setLoadingId(null);
-            setPlayingId(null);
+            if (operationRef.current !== operation) return;
+            if (status.error !== null) {
+              clearTimer();
+              setError(playbackMessage(status.error));
+              setDebug({
+                id: request.id,
+                byteLength: request.byteLength ?? null,
+                mimeType: request.mimeType ?? null,
+                loadState: 'failed',
+              });
+              setLoadingId(null);
+              setPlayingId(null);
+              releasePlayer();
+            } else if (status.didJustFinish) {
+              clearTimer();
+              setPlayingId(null);
+              releasePlayer();
+            }
           });
           setLoadingId(null);
           setPlayingId(request.id);
 
+          const requestedDuration = Number.isFinite(request.durationSec)
+            ? Math.max(0, request.durationSec)
+            : loadedStatus.duration;
+          const previewDuration = Math.min(requestedDuration, loadedStatus.duration);
           timerRef.current = setTimeout(
             () => {
               timerRef.current = null;
               if (operationRef.current !== operation) return;
               player.pause();
-              void player.seekTo(0).catch(() => undefined);
+              releasePlayer();
               setPlayingId(null);
             },
-            Math.max(200, request.durationSec * 1000),
+            Math.max(200, previewDuration * 1000),
           );
         } catch (playbackError) {
           if (operationRef.current !== operation) return;
