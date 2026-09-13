@@ -383,6 +383,7 @@ function Lanes({
               onMove={onMoveSfx}
               onResize={onResizeSfx}
               onDragStateChange={onDragStateChange}
+              liveMoveUpdates
             />
           );
         }
