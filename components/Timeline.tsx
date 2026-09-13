@@ -3,7 +3,9 @@ import { Pressable, ScrollView, View } from 'react-native';
 import { Sparkles } from 'lucide-react-native';
 import { Typography } from 'heroui-native';
 
+import { DraggableSfxClip } from '@/components/DraggableSfxClip';
 import { Waveform } from '@/components/Waveform';
+import { isSfxSuggestion } from '@/lib/sfx';
 import type { SuggestionStatus } from '@/lib/store';
 import { palette } from '@/lib/theme';
 import {
@@ -54,6 +56,8 @@ type TimelineProps = Geometry & {
   selectedId: string | null;
   onSeek: (seconds: number) => void;
   onSelectSuggestion: (suggestion: Suggestion) => void;
+  onSelectSfx: (suggestion: Suggestion) => void;
+  onMoveSfx: (suggestion: Suggestion, startSec: number) => void;
 };
 
 export function Timeline({
@@ -68,9 +72,12 @@ export function Timeline({
   selectedId,
   onSeek,
   onSelectSuggestion,
+  onSelectSfx,
+  onMoveSfx,
 }: TimelineProps) {
   const scrollRef = useRef<ScrollView>(null);
   const [viewportWidth, setViewportWidth] = useState(0);
+  const [isDraggingClip, setIsDraggingClip] = useState(false);
   const timelineWidth = timelineSec * pxPerSec;
 
   useEffect(() => {
@@ -90,6 +97,7 @@ export function Timeline({
         <ScrollView
           ref={scrollRef}
           horizontal
+          scrollEnabled={!isDraggingClip}
           showsHorizontalScrollIndicator={false}
           onLayout={(event) => setViewportWidth(event.nativeEvent.layout.width)}
         >
@@ -106,11 +114,15 @@ export function Timeline({
             <Lanes
               suggestions={suggestions}
               statuses={statuses}
+              selectedId={selectedId}
               waveform={waveform}
               narrationSec={narrationSec}
               timelineSec={timelineSec}
               pxPerSec={pxPerSec}
               onSeek={onSeek}
+              onSelectSfx={onSelectSfx}
+              onMoveSfx={onMoveSfx}
+              onDragStateChange={setIsDraggingClip}
             />
             <Playhead position={position} pxPerSec={pxPerSec} />
           </View>
@@ -270,18 +282,26 @@ function MarkerStrip({
 type LanesProps = Geometry & {
   suggestions: Suggestion[];
   statuses: Record<string, SuggestionStatus>;
+  selectedId: string | null;
   waveform: number[];
   onSeek: (seconds: number) => void;
+  onSelectSfx: (suggestion: Suggestion) => void;
+  onMoveSfx: (suggestion: Suggestion, startSec: number) => void;
+  onDragStateChange: (dragging: boolean) => void;
 };
 
 function Lanes({
   suggestions,
   statuses,
+  selectedId,
   waveform,
   narrationSec,
   timelineSec,
   pxPerSec,
   onSeek,
+  onSelectSfx,
+  onMoveSfx,
+  onDragStateChange,
 }: LanesProps) {
   const timelineWidth = timelineSec * pxPerSec;
   const bars = useMemo(() => {
@@ -290,86 +310,110 @@ function Lanes({
   }, [narrationSec, timelineSec, timelineWidth, waveform]);
 
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel="Move playhead"
-      onPress={(event) => onSeek(event.nativeEvent.locationX / pxPerSec)}
-    >
-      <View style={{ height: LANES_HEIGHT }}>
-        {TRACKS.map((track, index) => (
+    <View style={{ height: LANES_HEIGHT }}>
+      {TRACKS.map((track, index) => (
+        <View
+          key={track.id}
+          style={{ height: LANE_HEIGHT, top: index * LANE_HEIGHT }}
+          className="border-border bg-canvas absolute right-0 left-0 justify-center border-b"
+        >
+          {track.id === 'narration' ? (
+            <Waveform
+              values={bars}
+              height={LANE_HEIGHT - 18}
+              barClassName="bg-narration-soft"
+              className="px-0"
+            />
+          ) : null}
+        </View>
+      ))}
+
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Move playhead"
+        onPress={(event) => {
+          const next = event.nativeEvent.locationX / pxPerSec;
+          if (Number.isFinite(next)) onSeek(Math.max(0, Math.min(narrationSec, next)));
+        }}
+        className="absolute inset-0"
+      />
+
+      <View
+        pointerEvents="none"
+        className="bg-lane-line/60 absolute w-px"
+        style={{ left: narrationSec * pxPerSec, top: 0, height: LANES_HEIGHT }}
+      />
+
+      {suggestions.map((suggestion) => {
+        const status = statuses[suggestion.id] ?? 'pending';
+        if (status === 'rejected') return null;
+
+        const laneIndex = TRACKS.findIndex((track) => track.id === suggestion.clip.track);
+        const { clip } = suggestion;
+        const left = clip.startSec * pxPerSec;
+        const width = Math.max(18, (clip.endSec - clip.startSec) * pxPerSec);
+        const accent = LANE_ACCENT[clip.track];
+        const isApplied = status === 'accepted';
+        const style = {
+          top: laneIndex * LANE_HEIGHT + 8,
+          height: LANE_HEIGHT - 18,
+        };
+
+        if (isApplied && isSfxSuggestion(suggestion)) {
+          return (
+            <DraggableSfxClip
+              key={suggestion.id}
+              suggestion={suggestion}
+              narrationSec={narrationSec}
+              pxPerSec={pxPerSec}
+              selected={selectedId === suggestion.id}
+              style={style}
+              onSelect={onSelectSfx}
+              onMove={onMoveSfx}
+              onDragStateChange={onDragStateChange}
+            />
+          );
+        }
+
+        return (
           <View
-            key={track.id}
-            style={{ height: LANE_HEIGHT, top: index * LANE_HEIGHT }}
-            className="border-border bg-canvas absolute right-0 left-0 justify-center border-b"
+            key={suggestion.id}
+            pointerEvents="none"
+            className={cn(
+              'absolute justify-center overflow-hidden rounded-md px-1.5',
+              isApplied ? accent.clip : cn('bg-panel/70 border border-dashed', accent.ghost),
+            )}
+            style={{
+              left,
+              width,
+              ...style,
+              opacity: isApplied ? 1 : 0.85,
+            }}
           >
-            {track.id === 'narration' ? (
-              <Waveform
-                values={bars}
-                height={LANE_HEIGHT - 18}
-                barClassName="bg-narration-soft"
-                className="px-0"
-              />
+            {width > 62 ? (
+              <Typography
+                type="body-xs"
+                weight="medium"
+                numberOfLines={1}
+                className={isApplied ? 'text-panel' : accent.text}
+                style={{ fontSize: 10 }}
+              >
+                {isApplied ? clip.label : `${clip.label} · suggested`}
+              </Typography>
             ) : null}
           </View>
-        ))}
+        );
+      })}
 
+      {suggestions.map((suggestion) => (
         <View
+          key={`line-${suggestion.id}`}
+          className="bg-marker/40 absolute w-px"
+          style={{ left: suggestion.timeSec * pxPerSec, top: 0, height: LANES_HEIGHT }}
           pointerEvents="none"
-          className="bg-lane-line/60 absolute w-px"
-          style={{ left: narrationSec * pxPerSec, top: 0, height: LANES_HEIGHT }}
         />
-
-        {suggestions.map((suggestion) => {
-          const status = statuses[suggestion.id] ?? 'pending';
-          if (status === 'rejected') return null;
-
-          const laneIndex = TRACKS.findIndex((track) => track.id === suggestion.clip.track);
-          const { clip } = suggestion;
-          const left = clip.startSec * pxPerSec;
-          const width = Math.max(18, (clip.endSec - clip.startSec) * pxPerSec);
-          const accent = LANE_ACCENT[clip.track];
-          const isApplied = status === 'accepted';
-
-          return (
-            <View
-              key={suggestion.id}
-              className={cn(
-                'absolute justify-center overflow-hidden rounded-md px-1.5',
-                isApplied ? accent.clip : cn('bg-panel/70 border border-dashed', accent.ghost),
-              )}
-              style={{
-                left,
-                width,
-                top: laneIndex * LANE_HEIGHT + 10,
-                height: LANE_HEIGHT - 22,
-                opacity: isApplied ? 1 : 0.85,
-              }}
-            >
-              {width > 62 ? (
-                <Typography
-                  type="body-xs"
-                  weight="medium"
-                  numberOfLines={1}
-                  className={isApplied ? 'text-panel' : accent.text}
-                  style={{ fontSize: 10 }}
-                >
-                  {isApplied ? clip.label : `${clip.label} · suggested`}
-                </Typography>
-              ) : null}
-            </View>
-          );
-        })}
-
-        {suggestions.map((suggestion) => (
-          <View
-            key={`line-${suggestion.id}`}
-            className="bg-marker/40 absolute w-px"
-            style={{ left: suggestion.timeSec * pxPerSec, top: 0, height: LANES_HEIGHT }}
-            pointerEvents="none"
-          />
-        ))}
-      </View>
-    </Pressable>
+      ))}
+    </View>
   );
 }
 

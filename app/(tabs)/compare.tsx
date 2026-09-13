@@ -1,9 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { ArrowLeft, Check, Mic, Sparkles, Waves } from 'lucide-react-native';
 import { Button, Surface, Typography } from 'heroui-native';
-import { ScrollView, View } from 'react-native';
+import { Pressable, ScrollView, View } from 'react-native';
 import { router } from 'expo-router';
 
+import { DraggableSfxClip } from '@/components/DraggableSfxClip';
+import { SfxTimingPanel } from '@/components/SfxTimingPanel';
 import { SafeAreaView } from '@/components/ui/primitives/SafeAreaView';
 import { TransportControls } from '@/components/TransportControls';
 import { Waveform } from '@/components/Waveform';
@@ -28,25 +30,20 @@ import {
   TRACK_NAME,
 } from '@/lib/story';
 import { palette } from '@/lib/theme';
-import { cn } from '@/lib/utils';
-
-const CLIP_COLOR = {
-  narration: 'bg-narration',
-  music: 'bg-music',
-  sfx: 'bg-sfx',
-} as const;
 
 export default function CompareScreen() {
   const hasAnalysed = useStoryStore((state) => state.hasAnalysed);
   const manuscriptTitle = useStoryStore((state) => state.manuscriptTitle);
   const statuses = useStoryStore((state) => state.statuses);
   const details = useStoryStore((state) => state.details);
+  const setSfxOverride = useStoryStore((state) => state.setSfxOverride);
 
   const { audioUri, narrationSec, suggestions, waveform, sfxSettings, sounds } = useStoryTimeline();
 
   const original = useNarrationPlayer(audioUri, narrationSec);
   const assisted = useNarrationPlayer(audioUri, narrationSec);
   const [waveWidth, setWaveWidth] = useState(0);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const barCount = Math.max(24, Math.floor(waveWidth / (BAR_WIDTH + BAR_GAP)) || 60);
 
   const accepted = useMemo(
@@ -85,6 +82,15 @@ export default function CompareScreen() {
     [accepted, sfxSettings, sounds],
   );
 
+  const selectedSfx = useMemo(
+    () =>
+      accepted.find(
+        (item) =>
+          item.id === selectedId && isSfxSuggestion(item) && sfxSettings[item.id] !== undefined,
+      ) ?? null,
+    [accepted, selectedId, sfxSettings],
+  );
+
   // Only the assisted player gets the sound effects. The original stays dry.
   useSfxScheduler({
     cues: sfxCues,
@@ -92,6 +98,48 @@ export default function CompareScreen() {
     position: assisted.position,
     isPlaying: assisted.isPlaying,
   });
+
+  const selectSfx = useCallback(
+    (suggestion: Suggestion) => {
+      original.pause();
+      assisted.pause();
+      setSelectedId(suggestion.id);
+      assisted.seek(Math.max(0, suggestion.timeSec - 2));
+    },
+    [assisted, original],
+  );
+
+  const moveSfx = useCallback(
+    (suggestion: Suggestion, startSec: number) => {
+      setSelectedId(suggestion.id);
+      setSfxOverride(suggestion.id, { startSec });
+    },
+    [setSfxOverride],
+  );
+
+  const playSelectedFromHere = useCallback(() => {
+    if (selectedSfx === null) return;
+    original.pause();
+    assisted.pause();
+    assisted.seek(Math.max(0, selectedSfx.timeSec - 2));
+    assisted.play();
+  }, [assisted, original, selectedSfx]);
+
+  const seekOriginal = useCallback(
+    (seconds: number) => {
+      assisted.pause();
+      original.seek(seconds);
+    },
+    [assisted, original],
+  );
+
+  const seekAssisted = useCallback(
+    (seconds: number) => {
+      original.pause();
+      assisted.seek(seconds);
+    },
+    [assisted, original],
+  );
 
   if (!hasAnalysed) {
     return (
@@ -160,7 +208,7 @@ export default function CompareScreen() {
             duration={original.durationSec}
             onToggle={playOriginal}
             onRestart={original.reset}
-            onSeek={original.seek}
+            onSeek={seekOriginal}
             progressClassName="bg-narration"
           />
         </Surface>
@@ -176,21 +224,37 @@ export default function CompareScreen() {
           <View className="bg-canvas gap-2 rounded-xl px-3 py-4">
             <Waveform values={assistedBars} height={54} barClassName="bg-narration" />
             <View
-              className="bg-lane h-4 overflow-hidden rounded-md"
-              style={{ width: barCount * (BAR_WIDTH + BAR_GAP) }}
+              className="bg-lane relative h-14 overflow-hidden rounded-md"
+              style={{ width: Math.max(1, waveWidth) }}
             >
               {accepted
-                .filter((item) => item.clip.track !== 'narration')
+                .filter((item) => item.clip.track !== 'narration' && !isSfxSuggestion(item))
                 .map((item) => (
                   <View
                     key={item.id}
-                    className={cn('absolute h-full rounded-md', CLIP_COLOR[item.clip.track])}
+                    className="bg-music absolute top-2 h-10 rounded-md"
                     style={{
-                      left: `${(item.clip.startSec / narrationSec) * 100}%`,
-                      width: `${((item.clip.endSec - item.clip.startSec) / narrationSec) * 100}%`,
+                      left: (item.clip.startSec / narrationSec) * Math.max(1, waveWidth),
+                      width: Math.max(
+                        18,
+                        ((item.clip.endSec - item.clip.startSec) / narrationSec) *
+                          Math.max(1, waveWidth),
+                      ),
                     }}
                   />
                 ))}
+              {accepted.filter(isSfxSuggestion).map((item) => (
+                <DraggableSfxClip
+                  key={item.id}
+                  suggestion={item}
+                  narrationSec={narrationSec}
+                  pxPerSec={Math.max(1, waveWidth) / narrationSec}
+                  selected={selectedId === item.id}
+                  style={{ top: 4, height: 48 }}
+                  onSelect={selectSfx}
+                  onMove={moveSfx}
+                />
+              ))}
             </View>
           </View>
 
@@ -200,9 +264,31 @@ export default function CompareScreen() {
             duration={assisted.durationSec}
             onToggle={playAssisted}
             onRestart={assisted.reset}
-            onSeek={assisted.seek}
+            onSeek={seekAssisted}
           />
         </Surface>
+
+        {selectedSfx !== null ? (
+          <SfxTimingPanel
+            key={`${selectedSfx.id}:${sfxSettings[selectedSfx.id].startSec}`}
+            suggestion={selectedSfx}
+            settings={sfxSettings[selectedSfx.id]}
+            sounds={sounds}
+            currentPlayhead={assisted.position}
+            onChangeStart={(startSec) => setSfxOverride(selectedSfx.id, { startSec })}
+            onUsePlayhead={() => setSfxOverride(selectedSfx.id, { startSec: assisted.position })}
+            onPlayFromHere={playSelectedFromHere}
+            onBeforePreview={() => {
+              original.pause();
+              assisted.pause();
+            }}
+            onEdit={() => {
+              original.pause();
+              assisted.pause();
+              router.push({ pathname: '/suggestion/[id]', params: { id: selectedSfx.id } });
+            }}
+          />
+        ) : null}
 
         <View className="gap-3">
           <Typography type="body" weight="semibold" className="text-ink">
@@ -223,7 +309,17 @@ export default function CompareScreen() {
                 const needsSound = isSfxSuggestion(item) && cue === undefined;
 
                 return (
-                  <View key={item.id} className="flex-row gap-3">
+                  <Pressable
+                    key={item.id}
+                    onPress={isSfxSuggestion(item) ? () => selectSfx(item) : undefined}
+                    accessibilityRole={isSfxSuggestion(item) ? 'button' : undefined}
+                    accessibilityLabel={
+                      isSfxSuggestion(item)
+                        ? `${cue?.soundName ?? item.clip.label}, ${formatCueTime(item.timeSec)}`
+                        : undefined
+                    }
+                    className="flex-row gap-3 rounded-xl"
+                  >
                     {needsSound ? (
                       <Waves size={16} color={palette.marker} />
                     ) : (
@@ -231,7 +327,9 @@ export default function CompareScreen() {
                     )}
                     <View className="flex-1 gap-0.5">
                       <Typography type="body-sm" weight="semibold" className="text-ink">
-                        {formatTime(item.timeSec)} · {TRACK_NAME[item.clip.track]}
+                        {isSfxSuggestion(item)
+                          ? `${cue?.soundName ?? item.clip.label} · ${formatCueTime(item.timeSec)}`
+                          : `${formatTime(item.timeSec)} · ${TRACK_NAME[item.clip.track]}`}
                       </Typography>
                       <Typography type="body-sm" className="text-ink-soft">
                         {details[item.id] ?? item.detail}
@@ -250,7 +348,7 @@ export default function CompareScreen() {
                         </Typography>
                       ) : null}
                     </View>
-                  </View>
+                  </Pressable>
                 );
               })}
               <Typography type="body-xs" className="text-ink-soft">

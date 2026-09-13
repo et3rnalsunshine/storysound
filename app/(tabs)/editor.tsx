@@ -5,6 +5,7 @@ import { Pressable, ScrollView, View } from 'react-native';
 import { router } from 'expo-router';
 
 import { SafeAreaView } from '@/components/ui/primitives/SafeAreaView';
+import { SfxTimingPanel } from '@/components/SfxTimingPanel';
 import { StatusPill } from '@/components/StatusPill';
 import { Timeline } from '@/components/Timeline';
 import { TransportControls } from '@/components/TransportControls';
@@ -24,6 +25,7 @@ export default function EditorScreen() {
   const statuses = useStoryStore((state) => state.statuses);
   const details = useStoryStore((state) => state.details);
   const setNarrationDuration = useStoryStore((state) => state.setNarrationDuration);
+  const setSfxOverride = useStoryStore((state) => state.setSfxOverride);
 
   const {
     audioUri,
@@ -76,7 +78,19 @@ export default function EditorScreen() {
     (item) => isSfxSuggestion(item) && sfxSettings[item.id]?.soundId == null,
   ).length;
 
-  const { pause, seek } = player;
+  const selectedSfx = useMemo(
+    () =>
+      suggestions.find(
+        (item) =>
+          item.id === selectedId &&
+          statuses[item.id] === 'accepted' &&
+          isSfxSuggestion(item) &&
+          sfxSettings[item.id] !== undefined,
+      ) ?? null,
+    [selectedId, sfxSettings, statuses, suggestions],
+  );
+
+  const { pause, play, seek } = player;
   const openSuggestion = useCallback(
     (suggestion: Suggestion) => {
       pause();
@@ -86,6 +100,41 @@ export default function EditorScreen() {
     },
     [pause, seek],
   );
+
+  const selectSfx = useCallback(
+    (suggestion: Suggestion) => {
+      pause();
+      setSelectedId(suggestion.id);
+      seek(Math.max(0, suggestion.timeSec - 2));
+    },
+    [pause, seek],
+  );
+
+  const selectTimelineItem = useCallback(
+    (suggestion: Suggestion) => {
+      if (statuses[suggestion.id] === 'accepted' && isSfxSuggestion(suggestion)) {
+        selectSfx(suggestion);
+      } else {
+        openSuggestion(suggestion);
+      }
+    },
+    [openSuggestion, selectSfx, statuses],
+  );
+
+  const moveSfx = useCallback(
+    (suggestion: Suggestion, startSec: number) => {
+      setSelectedId(suggestion.id);
+      setSfxOverride(suggestion.id, { startSec });
+    },
+    [setSfxOverride],
+  );
+
+  const playSelectedFromHere = useCallback(() => {
+    if (selectedSfx === null) return;
+    pause();
+    seek(Math.max(0, selectedSfx.timeSec - 2));
+    play();
+  }, [pause, play, seek, selectedSfx]);
 
   if (!hasAnalysed) {
     return (
@@ -141,8 +190,25 @@ export default function EditorScreen() {
           statuses={statuses}
           selectedId={selectedId}
           onSeek={player.seek}
-          onSelectSuggestion={openSuggestion}
+          onSelectSuggestion={selectTimelineItem}
+          onSelectSfx={selectSfx}
+          onMoveSfx={moveSfx}
         />
+
+        {selectedSfx !== null ? (
+          <SfxTimingPanel
+            key={`${selectedSfx.id}:${sfxSettings[selectedSfx.id].startSec}`}
+            suggestion={selectedSfx}
+            settings={sfxSettings[selectedSfx.id]}
+            sounds={sounds}
+            currentPlayhead={player.position}
+            onChangeStart={(startSec) => setSfxOverride(selectedSfx.id, { startSec })}
+            onUsePlayhead={() => setSfxOverride(selectedSfx.id, { startSec: player.position })}
+            onPlayFromHere={playSelectedFromHere}
+            onBeforePreview={player.pause}
+            onEdit={() => openSuggestion(selectedSfx)}
+          />
+        ) : null}
 
         <View className="gap-3">
           <TransportControls

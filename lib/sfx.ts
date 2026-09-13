@@ -239,8 +239,25 @@ export function formatSfxVolume(volume: number): string {
 
 /** Precise timestamp for a cue, e.g. "00:16.4". */
 export function formatCueTime(seconds: number): string {
-  const safe = Math.max(0, seconds);
+  const safe = Number.isFinite(seconds) ? Math.max(0, seconds) : 0;
   const minutes = Math.floor(safe / 60);
   const rest = safe % 60;
   return `${String(minutes).padStart(2, '0')}:${rest.toFixed(1).padStart(4, '0')}`;
+}
+
+/** Parses MM:SS.s or raw seconds without ever returning a non-finite value. */
+export function parseCueTime(value: string): number | null {
+  const clean = value.trim();
+  if (clean.length === 0) return null;
+
+  const parts = clean.split(':');
+  if (parts.length > 2) return null;
+
+  const minutes = parts.length === 2 ? Number(parts[0]) : 0;
+  const seconds = Number(parts.length === 2 ? parts[1] : parts[0]);
+  if (!Number.isFinite(minutes) || !Number.isFinite(seconds)) return null;
+  if (minutes < 0 || seconds < 0 || (parts.length === 2 && seconds >= 60)) return null;
+
+  const total = minutes * 60 + seconds;
+  return Number.isFinite(total) ? round1(total) : null;
 }
